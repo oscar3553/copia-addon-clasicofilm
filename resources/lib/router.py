@@ -40,21 +40,21 @@ def run(argv):
         video_url = vk_links[0] if vk_links else (src[0][1] if src else None)
         
         if video_url:
-            # Limpiamos posibles entidades HTML codificadas (&amp; -> &)
             video_url = video_url.replace('&amp;', '&')
+            stream_url = None
             
-            item = xbmcgui.ListItem(path=video_url)
-            item.setProperty('IsPlayable', 'true')
-            
-            # Intentamos resolver mediante ResolveURL si está disponible en Kodi
+            # Intentamos resolver con ResolveURL
             try:
                 import resolveurl
-                resolved = resolveurl.resolve(video_url)
-                if resolved:
-                    item.setPath(resolved)
-            except Exception:
-                pass
-                
+                if resolveurl.RelevantHandler(video_url):
+                    stream_url = resolveurl.resolve(video_url)
+            except Exception as e:
+                xbmc.log(f"[Clasicofilm] Error al resolver con ResolveURL: {str(e)}", xbmc.LOGERROR)
+            
+            # Si ResolveURL devolvió el enlace directo, lo reproducimos
+            final_url = stream_url if stream_url else video_url
+            item = xbmcgui.ListItem(path=final_url)
+            item.setProperty('IsPlayable', 'true')
             xbmcplugin.setResolvedUrl(HANDLE, True, item)
         return
         
