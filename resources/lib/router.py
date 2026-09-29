@@ -29,23 +29,31 @@ def run(argv):
     HANDLE = int(argv[1]); p = urllib.parse.parse_qs(argv[2][1:]); a = p.get('action', [''])[0]
     
     if a == 'info_and_play':
-        xbmc.executebuiltin('Action(Info)') # Forzamos la ficha al hacer click
+        xbmc.executebuiltin('Action(Info)')
         url_post = urllib.parse.unquote(p['url'][0])
+        
+        # 1. Extraer iframe de la web
         src = extract(url_post)
         
-        vk_links = [u for n, u in src if n in ['VK', 'VKontakte', 'VKVideo']]
-        video_url = vk_links[0] if vk_links else (src[0][1] if src else None)
+        if not src:
+            xbmcgui.Dialog().ok("DIAGNÓSTICO 1", "No se encontró ningún enlace/iframe de VK en la entrada de la web.")
+            return
+            
+        vk_url = src[0][1]
+        xbmcgui.Dialog().notification("Paso 1 OK", f"VK Embed hallado: {vk_url[:30]}...", xbmcgui.NOTIFICATION_INFO, 3000)
         
-        if video_url:
-            video_url = video_url.replace('&amp;', '&')
+        # 2. Intentar resolver el vídeo
+        stream_url = resolve_vk(vk_url)
+        
+        if not stream_url:
+            xbmcgui.Dialog().ok("DIAGNÓSTICO 2", f"Se encontró la URL de VK:\n{vk_url}\n\nPero resolve_vk NO pudo extraer ningún vídeo (.m3u8 / .mp4) del código fuente.")
+            return
             
-            # Resolvemos el video internamente obteniendo el enlace directo
-            stream_url = resolve_vk(video_url)
-            
-            final_url = stream_url if stream_url else video_url
-            item = xbmcgui.ListItem(path=final_url)
-            item.setProperty('IsPlayable', 'true')
-            xbmcplugin.setResolvedUrl(HANDLE, True, item)
+        xbmcgui.Dialog().notification("Paso 2 OK", "¡Stream encontrado! Intentando reproducir...", xbmcgui.NOTIFICATION_INFO, 3000)
+        
+        item = xbmcgui.ListItem(path=stream_url)
+        item.setProperty('IsPlayable', 'true')
+        xbmcplugin.setResolvedUrl(HANDLE, True, item)
         return
         
     if a == 'latest':
@@ -80,7 +88,6 @@ def run(argv):
             xbmcplugin.endOfDirectory(HANDLE)
         return
 
-    # MENÚ PRINCIPAL (3 CARPETAS)
     menu = [('🎬 ÚLTIMAS NOVEDADES', 'latest'), ('🎭 GÉNEROS', 'genres'), ('🔍 BUSCAR', 'search')]
     for label, act in menu:
         li = xbmcgui.ListItem(label=label)
