@@ -12,10 +12,9 @@ def fetch(url):
 def extract(post_url):
     h = fetch(post_url)
     
-    # Busca URLs de embed de VK completas dentro del HTML
+    # Expresión regular para capturar la URL completa del iframe de VK sin cortar ningún parámetro
     pattern = r'https://(?:vk\.com|vkvideo\.ru)/video_ext\.php\?[^"\'\>\s<]+'
     
     vk_urls = set(re.findall(pattern, h))
     
-    # Devolvemos los enlaces encontrados
     return [('VK', x.replace('&amp;', '&')) for x in vk_urls]
