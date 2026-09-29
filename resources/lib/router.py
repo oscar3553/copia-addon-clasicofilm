@@ -36,16 +36,25 @@ def run(argv):
         url_post = urllib.parse.unquote(p['url'][0])
         src = extract(url_post)
         
-        # Buscamos si hay un servidor etiquetado como VK / VKontakte / VKVideo
         vk_links = [u for n, u in src if n in ['VK', 'VKontakte', 'VKVideo']]
-        
-        # Si no se encuentra por nombre exacto pero hay enlaces extraídos, toma el primero
         video_url = vk_links[0] if vk_links else (src[0][1] if src else None)
         
         if video_url:
-            # Enviamos el enlace de VK a Kodi marcándolo como reproducible para que use el resolver nativo
+            # Limpiamos posibles entidades HTML codificadas (&amp; -> &)
+            video_url = video_url.replace('&amp;', '&')
+            
             item = xbmcgui.ListItem(path=video_url)
             item.setProperty('IsPlayable', 'true')
+            
+            # Intentamos resolver mediante ResolveURL si está disponible en Kodi
+            try:
+                import resolveurl
+                resolved = resolveurl.resolve(video_url)
+                if resolved:
+                    item.setPath(resolved)
+            except Exception:
+                pass
+                
             xbmcplugin.setResolvedUrl(HANDLE, True, item)
         return
         
