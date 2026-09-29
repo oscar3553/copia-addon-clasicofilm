@@ -1,6 +1,6 @@
 import re, urllib.request
 
-UA = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
+UA = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'}
 
 def fetch(url):
     try:
@@ -12,10 +12,10 @@ def fetch(url):
 def extract(post_url):
     h = fetch(post_url)
     
-    # Expresión regular para capturar enlaces de embed de VK (tanto vk.com como vkvideo.ru)
-    pattern = r'https://(?:vk\.com|vkvideo\.ru)/video_ext\.php\?[^"\'\>\s]+'
+    # Busca URLs de embed de VK completas dentro del HTML
+    pattern = r'https://(?:vk\.com|vkvideo\.ru)/video_ext\.php\?[^"\'\>\s<]+'
     
     vk_urls = set(re.findall(pattern, h))
     
-    # Devolvemos la lista de enlaces etiquetados como 'VK'
-    return [('VK', x) for x in vk_urls]
+    # Devolvemos los enlaces encontrados
+    return [('VK', x.replace('&amp;', '&')) for x in vk_urls]
