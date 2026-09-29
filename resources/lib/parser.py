@@ -1,4 +1,4 @@
-import re, urllib.request, urllib.parse, xbmc, html
+import re, urllib.request, urllib.parse, xbmc, json, html
 
 UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
 
@@ -24,36 +24,57 @@ def extract(post_url):
 
 def resolve_vk(embed_url):
     """
-    Descarga el HTML del embed de VK y busca cualquier patron de video (.m3u8 o .mp4)
-    aplicando unescapes completos de unicode y entidades HTML.
+    Extrae la URL reproducible analizando los objetos JSON internos y bloques de configuración de VK.
     """
     raw_html = fetch(embed_url)
-    
-    # Decodificar entidades HTML y secuencias Unicode de JavaScript (\u0026 -> &, \/ -> /)
-    cleaned = html.unescape(raw_html)
-    cleaned = cleaned.replace('\\/', '/').replace('\\u0026', '&')
-    
-    # 1. Buscar cualquier URL con extension .m3u8 en el codigo
-    m3u8_list = re.findall(r'https?://[^\s"\'\\]+?\.(?:m3u8)[^\s"\'\\]*', cleaned)
-    if m3u8_list:
-        url = m3u8_list[0].replace('&amp;', '&')
+    if not raw_html:
+        return None
+
+    # Normalización del contenido
+    cleaned = html.unescape(raw_html).replace('\\/', '/').replace('\\"', '"')
+    stream_url = None
+
+    # 1. Búsqueda directa de manifiesto HLS/m3u8 en cualquier parte del HTML/JSON
+    hls_matches = re.findall(r'https?://[^\s"\'\\]+?\.(?:m3u8)[^\s"\'\\]*', cleaned)
+    if hls_matches:
+        stream_url = hls_matches[0]
+
+    # 2. Búsqueda dentro de bloques JSON de payload/files
+    if not stream_url:
+        # Extraer posibles URLs de fuentes mp4 etiquetadas por calidad
+        for q in ['1080', '720', '480', '360', '240']:
+            match = re.search(rf'"url{q}"\s*:\s*"([^"]+)"', cleaned)
+            if match:
+                stream_url = match.group(1)
+                break
+
+    # 3. Búsqueda por parámetros "files" de VK (ej: "mp4_720", "hls", "failover_host")
+    if not stream_url:
+        match_files = re.search(r'"files"\s*:\s*(\{.+?\})', cleaned)
+        if match_files:
+            try:
+                files_json = json.loads(match_files.group(1))
+                stream_url = files_json.get('hls') or files_json.get('mp4_720') or files_json.get('mp4_1080') or files_json.get('mp4_480')
+            except Exception:
+                pass
+
+    # 4. Coincidencia genérica para cualquier archivo MP4 válido de CDN
+    if not stream_url:
+        mp4_generic = re.findall(r'https?://[^\s"\'\\]+?\.(?:mp4)[^\s"\'\\]*', cleaned)
+        if mp4_generic:
+            stream_url = mp4_generic[0]
+
+    if stream_url:
+        # Decodificación final de caracteres Unicode y construcción de cabeceras para Kodi
+        stream_url = urllib.parse.unquote(stream_url).replace('&amp;', '&')
+        
+        # Eliminar posibles residuos de comillas o comas al final
+        stream_url = stream_url.rstrip('",;')
+        
         headers = f"|User-Agent={urllib.parse.quote(UA)}&Referer={urllib.parse.quote('https://vkvideo.ru/')}"
-        return url + headers
+        final_url = stream_url + headers
+        xbmc.log(f"[Clasicofilm] Stream VK resuelto con éxito: {final_url}", xbmc.LOGINFO)
+        return final_url
 
-    # 2. Buscar enlaces MP4 por calidad
-    for q in ['1080', '720', '480', '360', '240']:
-        mp4_match = re.search(rf'"url{q}"\s*:\s*"([^"]+)"', cleaned)
-        if mp4_match:
-            url = mp4_match.group(1).replace('&amp;', '&')
-            headers = f"|User-Agent={urllib.parse.quote(UA)}&Referer={urllib.parse.quote('https://vkvideo.ru/')}"
-            return url + headers
-
-    # 3. Expresion regular global para cualquier .mp4 de VK (cache/video/etc)
-    mp4_generic = re.findall(r'https?://[^\s"\'\\]+?\.(?:mp4)[^\s"\'\\]*', cleaned)
-    if mp4_generic:
-        url = mp4_generic[0].replace('&amp;', '&')
-        headers = f"|User-Agent={urllib.parse.quote(UA)}&Referer={urllib.parse.quote('https://vkvideo.ru/')}"
-        return url + headers
-
-    xbmc.log(f"[Clasicofilm] No se extrajo video de: {embed_url}", xbmc.LOGERROR)
+    xbmc.log(f"[Clasicofilm] No se pudo extraer enlace de vídeo del embed: {embed_url}", xbmc.LOGERROR)
     return None
