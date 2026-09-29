@@ -1,18 +1,15 @@
 <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<addon id="plugin.video.clasicofilm" name="Clasicofilm" version="2.8.0" provider-name="Gemini">
-    <requires>
-        <import addon="xbmc.python" version="3.0.0"/>
-    </requires>
-    <extension point="xbmc.python.pluginsource" library="main.py">
-        <provides>video</provides>
-    </extension>
-    <extension point="xbmc.addon.metadata">
-        <summary lang="es">Cine Clásico - Versión Heritage</summary>
-        <description lang="es">v2.7.0: Basada en la v1.8.5 estable. Recuperado logo, reproducción Dzen y menú de 3 carpetas con títulos dorados.</description>
-        <platform>all</platform>
-        <assets>
-            <icon>icon.png</icon>
-            <fanart>fanart.jpg</fanart>
-        </assets>
-    </extension>
+<addon id="plugin.video.clasicofilm" name="Clasicofilm" version="1.0.1" provider-name="TuNombre">
+  <requires>
+    <import addon="xbmc.python" version="3.0.0"/>
+    <import addon="script.module.resolveurl"/>
+  </requires>
+  <extension point="xbmc.python.pluginsource" library="main.py">
+    <provides>video</provides>
+  </extension>
+  <extension point="xbmc.addon.metadata">
+    <summary lang="es">Clasicofilm Kodi Addon</summary>
+    <description lang="es">Addon para ver películas de Clasicofilm</description>
+    <platform>all</platform>
+  </extension>
 </addon>
