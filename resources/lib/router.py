@@ -1,22 +1,19 @@
 import urllib.parse, xbmcplugin, xbmcgui, xbmc
 from .feed import latest, labels, by_label, search
-from .parser import extract
+from .parser import extract, resolve_vk
 
 HANDLE = None
 
 def movie_item(m, argv):
-    # Título en dorado para la lista
     label = f"[COLOR gold]{m['title']}[/COLOR]"
     if m['year']: label += f" ({m['year']})"
     li = xbmcgui.ListItem(label=label)
     
-    # Metadatos completos para la ficha técnica
     li.setInfo('video', {
         'title': m['title'], 'plot': m['plot'], 'director': m['director'], 
         'cast': m['cast'], 'mediatype': 'movie', 'year': int(m['year']) if m['year'] else 0
     })
     
-    # Artes con rutas locales para asegurar logo
     li.setArt({
         'thumb': m['image'], 'poster': m['image'], 
         'icon': 'special://home/addons/plugin.video.clasicofilm/icon.png',
@@ -41,17 +38,10 @@ def run(argv):
         
         if video_url:
             video_url = video_url.replace('&amp;', '&')
-            stream_url = None
             
-            # Intentamos resolver con ResolveURL
-            try:
-                import resolveurl
-                if resolveurl.RelevantHandler(video_url):
-                    stream_url = resolveurl.resolve(video_url)
-            except Exception as e:
-                xbmc.log(f"[Clasicofilm] Error al resolver con ResolveURL: {str(e)}", xbmc.LOGERROR)
+            # Resolvemos el video internamente obteniendo el enlace directo
+            stream_url = resolve_vk(video_url)
             
-            # Si ResolveURL devolvió el enlace directo, lo reproducimos
             final_url = stream_url if stream_url else video_url
             item = xbmcgui.ListItem(path=final_url)
             item.setProperty('IsPlayable', 'true')
