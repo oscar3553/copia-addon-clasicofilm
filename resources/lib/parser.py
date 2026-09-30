@@ -1,80 +1,80 @@
-import re, urllib.request, urllib.parse, xbmc, json, html
+import re, urllib.request, urllib.parse, json, html, xbmc
 
 UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
 
 def fetch(url):
     try:
-        req = urllib.request.Request(
-            url, 
-            headers={
-                'User-Agent': UA,
-                'Referer': 'https://vkvideo.ru/'
-            }
-        )
-        return urllib.request.urlopen(req, timeout=20).read().decode('utf-8', 'ignore')
+        req = urllib.request.Request(url, headers={'User-Agent': UA, 'Referer': 'https://ok.ru/'})
+        return urllib.request.urlopen(req, timeout=15).read().decode('utf-8', 'ignore')
     except Exception as e:
-        xbmc.log(f"[Clasicofilm] Error en fetch ({url}): {str(e)}", xbmc.LOGERROR)
+        xbmc.log(f"[Clasicofilm] Error en fetch OK.ru: {str(e)}", xbmc.LOGERROR)
         return ""
 
-def extract(post_url):
-    h = fetch(post_url)
-    pattern = r'https?://(?:www\.)?(?:vk\.com|vkvideo\.ru)/video_ext\.php\?[^"\'\>\s<]+'
-    vk_urls = list(set(re.findall(pattern, h)))
-    return [('VK', html.unescape(x).replace('&amp;', '&')) for x in vk_urls]
-
-def resolve_vk(embed_url):
+def extract_okru(post_url):
     """
-    Extrae la URL reproducible analizando los objetos JSON internos y bloques de configuración de VK.
+    Busca URLs de OK.ru dentro del post de WordPress (formatos ok.ru/video/ ID u ok.ru/videoembed/ ID)
     """
-    raw_html = fetch(embed_url)
-    if not raw_html:
-        return None
+    html_content = fetch(post_url)
+    pattern = r'https?://(?:www\.)?ok\.ru/(?:videoembed|video)/(\d+)'
+    matches = re.findall(pattern, html_content)
+    
+    # Devuelve una lista de tuplas con el servidor y la URL normalizada en formato embed
+    links = list(set(matches))
+    return [('OK.ru', f"https://ok.ru/videoembed/{m}") for m in links]
 
-    # Normalización del contenido
-    cleaned = html.unescape(raw_html).replace('\\/', '/').replace('\\"', '"')
-    stream_url = None
+def resolve_okru(embed_url):
+    """
+    Extrae el enlace directo .mp4 de OK.ru priorizando la máxima calidad disponible (1080p -> 720p -> etc.)
+    y adjuntando las cabeceras HTTP necesarias para evitar el error 403 Forbidden en Kodi.
+    """
+    try:
+        html_content = fetch(embed_url)
+        if not html_content:
+            return None
 
-    # 1. Búsqueda directa de manifiesto HLS/m3u8 en cualquier parte del HTML/JSON
-    hls_matches = re.findall(r'https?://[^\s"\'\\]+?\.(?:m3u8)[^\s"\'\\]*', cleaned)
-    if hls_matches:
-        stream_url = hls_matches[0]
+        # Buscar la etiqueta data-options que contiene la información técnica del reproductor
+        match = re.search(r'data-options="([^"]+)"', html_content)
+        if not match:
+            xbmc.log(f"[Clasicofilm] No se encontró data-options en: {embed_url}", xbmc.LOGERROR)
+            return None
 
-    # 2. Búsqueda dentro de bloques JSON de payload/files
-    if not stream_url:
-        # Extraer posibles URLs de fuentes mp4 etiquetadas por calidad
-        for q in ['1080', '720', '480', '360', '240']:
-            match = re.search(rf'"url{q}"\s*:\s*"([^"]+)"', cleaned)
-            if match:
-                stream_url = match.group(1)
+        # Decodificar entidades HTML y convertir a diccionario JSON
+        raw_json = html.unescape(match.group(1))
+        options = json.loads(raw_json)
+
+        # Extraer el string de metadatos de los vídeos
+        videos_str = options.get('flashvars', {}).get('metadata', '')
+        if not videos_str:
+            return None
+
+        metadata = json.loads(videos_str)
+        videos = metadata.get('videos', [])
+
+        # Orden de prioridad de máxima a mínima calidad
+        quality_order = ['full', 'hd', 'standard', 'low', 'lowest', 'mobile']
+        stream_url = None
+
+        for q in quality_order:
+            for v in videos:
+                if v.get('name') == q:
+                    stream_url = v.get('url')
+                    break
+            if stream_url:
                 break
 
-    # 3. Búsqueda por parámetros "files" de VK (ej: "mp4_720", "hls", "failover_host")
-    if not stream_url:
-        match_files = re.search(r'"files"\s*:\s*(\{.+?\})', cleaned)
-        if match_files:
-            try:
-                files_json = json.loads(match_files.group(1))
-                stream_url = files_json.get('hls') or files_json.get('mp4_720') or files_json.get('mp4_1080') or files_json.get('mp4_480')
-            except Exception:
-                pass
+        # Si no coincide con los nombres estándar, tomar el primer enlace disponible
+        if not stream_url and videos:
+            stream_url = videos[0].get('url')
 
-    # 4. Coincidencia genérica para cualquier archivo MP4 válido de CDN
-    if not stream_url:
-        mp4_generic = re.findall(r'https?://[^\s"\'\\]+?\.(?:mp4)[^\s"\'\\]*', cleaned)
-        if mp4_generic:
-            stream_url = mp4_generic[0]
+        if stream_url:
+            # Construcción de la URL con las cabeceras requeridas (User-Agent y Referer)
+            headers = f"|User-Agent={urllib.parse.quote(UA)}&Referer={urllib.parse.quote('https://ok.ru/')}"
+            final_play_url = stream_url + headers
+            
+            xbmc.log(f"[Clasicofilm] OK.ru resuelto con éxito: {final_play_url}", xbmc.LOGINFO)
+            return final_play_url
 
-    if stream_url:
-        # Decodificación final de caracteres Unicode y construcción de cabeceras para Kodi
-        stream_url = urllib.parse.unquote(stream_url).replace('&amp;', '&')
-        
-        # Eliminar posibles residuos de comillas o comas al final
-        stream_url = stream_url.rstrip('",;')
-        
-        headers = f"|User-Agent={urllib.parse.quote(UA)}&Referer={urllib.parse.quote('https://vkvideo.ru/')}"
-        final_url = stream_url + headers
-        xbmc.log(f"[Clasicofilm] Stream VK resuelto con éxito: {final_url}", xbmc.LOGINFO)
-        return final_url
+    except Exception as e:
+        xbmc.log(f"[Clasicofilm] Excepción al resolver OK.ru: {str(e)}", xbmc.LOGERROR)
 
-    xbmc.log(f"[Clasicofilm] No se pudo extraer enlace de vídeo del embed: {embed_url}", xbmc.LOGERROR)
     return None
