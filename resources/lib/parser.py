@@ -81,10 +81,20 @@ def resolve(embed_url):
             stream_url = videos[0].get('url')
 
         if stream_url:
-            # Limpiar escapados de URL y entidad &
             stream_url = html.unescape(stream_url).replace('\\/', '/')
-            headers = f"|User-Agent={urllib.parse.quote(UA)}&Referer={urllib.parse.quote('https://ok.ru/')}"
-            return stream_url + headers
+            
+            # Cabeceras completas para emular la conexión nativa del navegador
+            headers_dict = {
+                'User-Agent': UA,
+                'Referer': 'https://ok.ru/',
+                'Origin': 'https://ok.ru',
+                'Sec-Fetch-Dest': 'video',
+                'Sec-Fetch-Mode': 'cors',
+                'Sec-Fetch-Site': 'cross-site'
+            }
+            
+            headers_str = urllib.parse.urlencode(headers_dict)
+            return f"{stream_url}|{headers_str}"
 
     except Exception as e:
         xbmc.log(f"[Clasicofilm] Error resolviendo OK.ru ({embed_url}): {str(e)}", xbmc.LOGERROR)
