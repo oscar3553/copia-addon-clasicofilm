@@ -1,96 +1,57 @@
-import urllib.parse, xbmcplugin, xbmcgui, xbmc
-from .feed import latest, labels, by_label, search
-from .parser import extract, resolve_vk
+import sys, urllib.parse, xbmc, xbmcgui, xbmcplugin
+from resources.lib import feed, parser
 
-HANDLE = None
+HANDLE = int(sys.argv[1]) if len(sys.argv) > 1 else -1
+BASE_URL = sys.argv[0] if len(sys.argv) > 0 else ''
 
-def movie_item(m, argv):
-    label = f"[COLOR gold]{m['title']}[/COLOR]"
-    if m['year']: label += f" ({m['year']})"
-    li = xbmcgui.ListItem(label=label)
-    
-    li.setInfo('video', {
-        'title': m['title'], 'plot': m['plot'], 'director': m['director'], 
-        'cast': m['cast'], 'mediatype': 'movie', 'year': int(m['year']) if m['year'] else 0
-    })
-    
-    li.setArt({
-        'thumb': m['image'], 'poster': m['image'], 
-        'icon': 'special://home/addons/plugin.video.clasicofilm/icon.png',
-        'fanart': 'special://home/addons/plugin.video.clasicofilm/fanart.jpg'
-    })
-    
-    li.setProperty('IsPlayable', 'false')
-    u = f"{argv[0]}?action=info_and_play&url={urllib.parse.quote(m['url'])}"
-    xbmcplugin.addDirectoryItem(HANDLE, u, li, False)
+def get_params():
+    params = {}
+    if len(sys.argv) > 2 and sys.argv[2]:
+        cleaned_args = sys.argv[2].lstrip('?')
+        params = dict(urllib.parse.parse_qsl(cleaned_args))
+    return params
 
-def run(argv):
-    global HANDLE
-    HANDLE = int(argv[1]); p = urllib.parse.parse_qs(argv[2][1:]); a = p.get('action', [''])[0]
-    
-    if a == 'info_and_play':
-        xbmc.executebuiltin('Action(Info)')
-        url_post = urllib.parse.unquote(p['url'][0])
-        
-        # 1. Extraer iframe de la web
-        src = extract(url_post)
-        
-        if not src:
-            xbmcgui.Dialog().ok("DIAGNÓSTICO 1", "No se encontró ningún enlace/iframe de VK en la entrada de la web.")
-            return
+def run():
+    params = get_params()
+    action = params.get('action')
+    url = params.get('url')
+
+    if not action:
+        # Menú principal: Cargar lista de películas desde tu web
+        # Cambia esta URL por la dirección RSS de tu WordPress si es distinta
+        feed_url = "https://clasicofilm.com/feed/" 
+        posts = feed.get_posts(feed_url)
+
+        for p in posts:
+            li = xbmcgui.ListItem(label=p['title'])
+            if p['thumb']:
+                li.setArt({'thumb': p['thumb'], 'icon': p['thumb']})
             
-        vk_url = src[0][1]
-        xbmcgui.Dialog().notification("Paso 1 OK", f"VK Embed hallado: {vk_url[:30]}...", xbmcgui.NOTIFICATION_INFO, 3000)
-        
-        # 2. Intentar resolver el vídeo
-        stream_url = resolve_vk(vk_url)
-        
-        if not stream_url:
-            xbmcgui.Dialog().ok("DIAGNÓSTICO 2", f"Se encontró la URL de VK:\n{vk_url}\n\nPero resolve_vk NO pudo extraer ningún vídeo (.m3u8 / .mp4) del código fuente.")
-            return
+            # Construir URL interna para seleccionar la película
+            link_url = f"{BASE_URL}?action=play&url={urllib.parse.quote_plus(p['url'])}"
             
-        xbmcgui.Dialog().notification("Paso 2 OK", "¡Stream encontrado! Intentando reproducir...", xbmcgui.NOTIFICATION_INFO, 3000)
+            # Marcar el elemento como reproducible
+            li.setProperty('IsPlayable', 'true')
+            xbmcplugin.addDirectoryItem(handle=HANDLE, url=link_url, listitem=li, isFolder=False)
+
+        xbmcplugin.endOfDirectory(HANDLE)
+
+    elif action == 'play' and url:
+        # 1. Buscar enlace de OK.ru en el post de WordPress
+        servers = parser.extract(url)
         
-        item = xbmcgui.ListItem(path=stream_url)
-        item.setProperty('IsPlayable', 'true')
-        xbmcplugin.setResolvedUrl(HANDLE, True, item)
-        return
-        
-    if a == 'latest':
-        items, n_url = latest(p.get('next_page', [None])[0])
-        xbmcplugin.setContent(HANDLE, 'movies')
-        for m in items: movie_item(m, argv)
-        if n_url:
-            u = f"{argv[0]}?action=latest&next_page={urllib.parse.quote(n_url)}"
-            xbmcplugin.addDirectoryItem(HANDLE, u, xbmcgui.ListItem(label='[COLOR gold]➡ SIGUIENTE PÁGINA[/COLOR]'), True)
-        xbmcplugin.endOfDirectory(HANDLE); return
+        if not servers:
+            xbmcgui.Dialog().notification('Clasicofilm', 'No se encontró enlace de OK.ru', xbmcgui.NOTIFICATION_ERROR, 3000)
+            return
 
-    if a == 'genres':
-        for l in labels():
-            li = xbmcgui.ListItem(label=f"[COLOR gold]•[/COLOR] {l}")
-            li.setArt({'icon': 'special://home/addons/plugin.video.clasicofilm/icon.png'})
-            xbmcplugin.addDirectoryItem(HANDLE, f"{argv[0]}?action=genre&name={urllib.parse.quote(l)}", li, True)
-        xbmcplugin.endOfDirectory(HANDLE); return
+        # Tomar el primer servidor OK.ru encontrado
+        ok_embed_url = servers[0][1]
 
-    if a == 'genre':
-        name = p['name'][0]
-        items, n_url = by_label(name, p.get('next_page', [None])[0])
-        xbmcplugin.setContent(HANDLE, 'movies')
-        for m in items: movie_item(m, argv)
-        xbmcplugin.endOfDirectory(HANDLE); return
+        # 2. Extraer el enlace directo .mp4 de OK.ru
+        stream_url = parser.resolve(ok_embed_url)
 
-    if a == 'search':
-        kb = xbmcgui.Dialog().input('Buscar película...', type=xbmcgui.INPUT_ALPHANUM)
-        if kb:
-            items, _ = search(kb)
-            xbmcplugin.setContent(HANDLE, 'movies')
-            for m in items: movie_item(m, argv)
-            xbmcplugin.endOfDirectory(HANDLE)
-        return
-
-    menu = [('🎬 ÚLTIMAS NOVEDADES', 'latest'), ('🎭 GÉNEROS', 'genres'), ('🔍 BUSCAR', 'search')]
-    for label, act in menu:
-        li = xbmcgui.ListItem(label=label)
-        li.setArt({'icon': 'special://home/addons/plugin.video.clasicofilm/icon.png'})
-        xbmcplugin.addDirectoryItem(HANDLE, f"{argv[0]}?action={act}", li, True)
-    xbmcplugin.endOfDirectory(HANDLE)
+        if stream_url:
+            play_item = xbmcgui.ListItem(path=stream_url)
+            xbmcplugin.setResolvedUrl(HANDLE, True, play_item)
+        else:
+            xbmcgui.Dialog().notification('Clasicofilm', 'Error resolviendo el vídeo de OK.ru', xbmcgui.NOTIFICATION_ERROR, 3000)
