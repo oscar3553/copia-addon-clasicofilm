@@ -19,7 +19,7 @@ def run():
     if not action:
         # Menú principal: Cargar lista de películas desde tu web
         # Cambia esta URL por la dirección RSS de tu WordPress si es distinta
-        feed_url = "https://classicofilm.com/feed/" 
+        feed_url = "https://www.classicofilm.com/feeds/posts/default"
         posts = feed.get_posts(feed_url)
 
         for p in posts:
