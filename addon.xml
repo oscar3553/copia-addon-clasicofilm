@@ -1,14 +1,14 @@
 <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<addon id="plugin.video.clasicofilm" name="Clasicofilm" version="1.0.1" provider-name="TuNombre">
-  <requires>
-    <import addon="xbmc.python" version="3.0.0"/>
-  </requires>
-  <extension point="xbmc.python.pluginsource" library="main.py">
-    <provides>video</provides>
-  </extension>
-  <extension point="xbmc.addon.metadata">
-    <summary lang="es">Clasicofilm Kodi Addon</summary>
-    <description lang="es">Addon para ver películas de Clasicofilm</description>
-    <platform>all</platform>
-  </extension>
+<addon id="plugin.video.clasicofilm" name="Clasicofilm" version="1.0.0" provider-name="TuNombre">
+    <requires>
+        <import addon="xbmc.python" version="3.0.0"/>
+    </requires>
+    <extension point="xbmc.python.pluginsource" library="main.py">
+        <provides>video</provides>
+    </extension>
+    <extension point="xbmc.addon.metadata">
+        <summary lang="es_ES">Addon de películas clásicas Clasicofilm</summary>
+        <description lang="es_ES">Reproduce películas alojadas en OK.ru directamente desde el sitio WordPress.</description>
+        <platform>all</platform>
+    </extension>
 </addon>
