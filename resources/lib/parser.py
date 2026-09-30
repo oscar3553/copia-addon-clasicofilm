@@ -48,13 +48,11 @@ def resolve(embed_url):
         videos = []
 
         if isinstance(flashvars, dict):
-            # Si flashvars ya viene parseado como diccionario
             metadata = flashvars.get('metadata', {})
             if isinstance(metadata, str):
                 metadata = json.loads(metadata)
             videos = metadata.get('videos', [])
         elif isinstance(flashvars, str):
-            # Si flashvars fuera una cadena de texto JSON
             fv_json = json.loads(flashvars)
             metadata = fv_json.get('metadata', {})
             if isinstance(metadata, str):
@@ -65,7 +63,7 @@ def resolve(embed_url):
             xbmc.log(f"[Clasicofilm] No se encontraron objetos de vídeo en metadata para {embed_url}", xbmc.LOGERROR)
             return None
 
-        # Prioridad de calidades de mayor a menor
+        # Prioridad de calidades manteniendo 1080p (full) como primera opción
         quality_order = ['full', 'hd', 'sd', 'standard', 'low', 'lowest', 'mobile']
         stream_url = None
 
@@ -81,19 +79,21 @@ def resolve(embed_url):
             stream_url = videos[0].get('url')
 
         if stream_url:
+            # Limpiar escapados de URL y entidad &
             stream_url = html.unescape(stream_url).replace('\\/', '/')
             
-            # Cabeceras completas para emular la conexión nativa del navegador
-            headers_dict = {
-                'User-Agent': UA,
-                'Referer': 'https://ok.ru/',
-                'Origin': 'https://ok.ru',
-                'Sec-Fetch-Dest': 'video',
-                'Sec-Fetch-Mode': 'cors',
-                'Sec-Fetch-Site': 'cross-site'
-            }
+            # Cabeceras nativas formateadas expresamente para el reproductor ffmpeg/Kodi
+            headers_list = [
+                f"User-Agent={urllib.parse.quote(UA)}",
+                f"Referer={urllib.parse.quote('https://ok.ru/')}",
+                f"Origin={urllib.parse.quote('https://ok.ru')}",
+                "Sec-Fetch-Dest=video",
+                "Sec-Fetch-Mode=cors",
+                "Sec-Fetch-Site=cross-site",
+                "Connection=keep-alive"
+            ]
             
-            headers_str = urllib.parse.urlencode(headers_dict)
+            headers_str = "&".join(headers_list)
             return f"{stream_url}|{headers_str}"
 
     except Exception as e:
