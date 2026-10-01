@@ -16,21 +16,20 @@ def fetch(url):
         return ""
 
 def extract(post_url):
-    """Extrae IDs e incrustaciones de OK.ru del HTML del post limpiando parámetros extra"""
+    """Extrae IDs e incrustaciones de OK.ru del HTML del post limpiando parámetros"""
     html_content = fetch(post_url)
     if not html_content:
         return []
 
-    # Extrae únicamente los números del ID ignorando parámetros como ?nochat=1
     pattern = r'ok\.ru/(?:videoembed|video)/(\d+)'
     matches = re.findall(pattern, html_content)
     video_ids = list(set(matches))
     return [('OK.ru', f"https://ok.ru/videoembed/{vid_id}") for vid_id in video_ids]
 
 def resolve(embed_url):
-    """Obtiene la URL directa de streaming de OK.ru limpia de parámetros"""
+    """Obtiene la URL directa de streaming de OK.ru con limpiador profundo de JSON y fallback"""
     try:
-        # Extraer solo el ID numérico para construir una URL limpia de consulta
+        # 1. Asegurar la extracción del ID numérico puro sin parámetros adicionales (?nochat=1, etc.)
         vid_match = re.search(r'(\d+)', embed_url)
         if not vid_match:
             return None
@@ -41,20 +40,20 @@ def resolve(embed_url):
         if not html_content:
             return None
 
-        # 1. Extraer el bloque data-options
+        # 2. Extraer el bloque data-options
         match = re.search(r'data-options="([^"]+)"', html_content) or re.search(r"data-options='([^']+)'", html_content)
         if not match:
             xbmc.log(f"[Clasicofilm] No se encontró data-options en {clean_embed_url}", xbmc.LOGERROR)
             return None
 
-        # Decodificar entidades HTML (&quot;, \u0026, etc.)
+        # Decodificación limpia de entidades HTML y caracteres Unicode
         raw_options = html.unescape(match.group(1))
         options = json.loads(raw_options)
 
-        # 2. Extraer la lista de vídeos de flashvars
         flashvars = options.get('flashvars', {})
         videos = []
 
+        # Extraer lista de vídeos parseando posible sub-cadena JSON
         if isinstance(flashvars, dict):
             metadata = flashvars.get('metadata', {})
             if isinstance(metadata, str):
@@ -67,40 +66,51 @@ def resolve(embed_url):
                 metadata = json.loads(metadata)
             videos = metadata.get('videos', [])
 
-        if not videos:
-            xbmc.log(f"[Clasicofilm] No se encontraron objetos de vídeo en metadata para {clean_embed_url}", xbmc.LOGERROR)
-            return None
-
-        # Prioridad de calidades: Busca 'full' (1080p), si aún no está disponible toma la mejor disponible ('hd', 'sd', etc.)
-        quality_order = ['full', 'hd', 'sd', 'standard', 'low', 'lowest', 'mobile']
         stream_url = None
 
-        for q in quality_order:
-            for v in videos:
-                if v.get('name') == q and v.get('url'):
-                    stream_url = v.get('url')
+        # 3. Selección de calidad por objeto JSON
+        if videos:
+            quality_order = ['full', 'hd', 'sd', 'standard', 'low', 'lowest', 'mobile']
+            for q in quality_order:
+                for v in videos:
+                    if v.get('name') == q and v.get('url'):
+                        stream_url = v.get('url')
+                        break
+                if stream_url:
                     break
-            if stream_url:
-                break
 
-        if not stream_url and videos:
-            stream_url = videos[0].get('url')
+            if not stream_url and videos:
+                stream_url = videos[0].get('url')
 
-        if stream_url:
-            stream_url = html.unescape(stream_url).replace('\\/', '/')
-            
-            headers_list = [
-                f"User-Agent={urllib.parse.quote(UA)}",
-                f"Referer={urllib.parse.quote('https://ok.ru/')}",
-                f"Origin={urllib.parse.quote('https://ok.ru')}",
-                "Sec-Fetch-Dest=video",
-                "Sec-Fetch-Mode=cors",
-                "Sec-Fetch-Site=cross-site",
-                "Connection=keep-alive"
-            ]
-            
-            headers_str = "&".join(headers_list)
-            return f"{stream_url}|{headers_str}"
+        # 4. Fallback directo por regex si el parseo del JSON de metadata no devolvió lista de vídeos
+        if not stream_url:
+            # Busca URLs directas con firma en el texto plano de data-options
+            urls_found = re.findall(r'&quot;url&quot;:&quot;(https?:\\?/\\?/[^&]+)&quot;', match.group(1))
+            if urls_found:
+                # Filtrar SWF o recursos estáticos
+                valid_urls = [u for u in urls_found if 'st.cmd' not in u and 'MegaPlayer' not in u]
+                if valid_urls:
+                    stream_url = valid_urls[0]
+
+        if not stream_url:
+            xbmc.log(f"[Clasicofilm] No se pudo extraer la URL del flujo para {clean_embed_url}", xbmc.LOGERROR)
+            return None
+
+        # Sanear la URL extraída
+        stream_url = html.unescape(stream_url).replace('\\/', '/').replace('\\u0026', '&')
+
+        headers_list = [
+            f"User-Agent={urllib.parse.quote(UA)}",
+            f"Referer={urllib.parse.quote('https://ok.ru/')}",
+            f"Origin={urllib.parse.quote('https://ok.ru')}",
+            "Sec-Fetch-Dest=video",
+            "Sec-Fetch-Mode=cors",
+            "Sec-Fetch-Site=cross-site",
+            "Connection=keep-alive"
+        ]
+
+        headers_str = "&".join(headers_list)
+        return f"{stream_url}|{headers_str}"
 
     except Exception as e:
         xbmc.log(f"[Clasicofilm] Error resolviendo OK.ru ({embed_url}): {str(e)}", xbmc.LOGERROR)
