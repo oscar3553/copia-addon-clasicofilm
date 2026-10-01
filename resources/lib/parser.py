@@ -16,27 +16,35 @@ def fetch(url):
         return ""
 
 def extract(post_url):
-    """Extrae IDs e incrustaciones de OK.ru del HTML del post"""
+    """Extrae IDs e incrustaciones de OK.ru del HTML del post limpiando parámetros extra"""
     html_content = fetch(post_url)
     if not html_content:
         return []
 
+    # Extrae únicamente los números del ID ignorando parámetros como ?nochat=1
     pattern = r'ok\.ru/(?:videoembed|video)/(\d+)'
     matches = re.findall(pattern, html_content)
     video_ids = list(set(matches))
     return [('OK.ru', f"https://ok.ru/videoembed/{vid_id}") for vid_id in video_ids]
 
 def resolve(embed_url):
-    """Obtiene la URL directa de streaming de OK.ru basándose en la estructura del data-options"""
+    """Obtiene la URL directa de streaming de OK.ru limpia de parámetros"""
     try:
-        html_content = fetch(embed_url)
+        # Extraer solo el ID numérico para construir una URL limpia de consulta
+        vid_match = re.search(r'(\d+)', embed_url)
+        if not vid_match:
+            return None
+        clean_id = vid_match.group(1)
+        clean_embed_url = f"https://ok.ru/videoembed/{clean_id}"
+
+        html_content = fetch(clean_embed_url)
         if not html_content:
             return None
 
         # 1. Extraer el bloque data-options
         match = re.search(r'data-options="([^"]+)"', html_content) or re.search(r"data-options='([^']+)'", html_content)
         if not match:
-            xbmc.log(f"[Clasicofilm] No se encontró data-options en {embed_url}", xbmc.LOGERROR)
+            xbmc.log(f"[Clasicofilm] No se encontró data-options en {clean_embed_url}", xbmc.LOGERROR)
             return None
 
         # Decodificar entidades HTML (&quot;, \u0026, etc.)
@@ -60,10 +68,10 @@ def resolve(embed_url):
             videos = metadata.get('videos', [])
 
         if not videos:
-            xbmc.log(f"[Clasicofilm] No se encontraron objetos de vídeo en metadata para {embed_url}", xbmc.LOGERROR)
+            xbmc.log(f"[Clasicofilm] No se encontraron objetos de vídeo en metadata para {clean_embed_url}", xbmc.LOGERROR)
             return None
 
-        # Prioridad de calidades manteniendo 1080p (full) como primera opción
+        # Prioridad de calidades: Busca 'full' (1080p), si aún no está disponible toma la mejor disponible ('hd', 'sd', etc.)
         quality_order = ['full', 'hd', 'sd', 'standard', 'low', 'lowest', 'mobile']
         stream_url = None
 
@@ -79,10 +87,8 @@ def resolve(embed_url):
             stream_url = videos[0].get('url')
 
         if stream_url:
-            # Limpiar escapados de URL y entidad &
             stream_url = html.unescape(stream_url).replace('\\/', '/')
             
-            # Cabeceras nativas formateadas expresamente para el reproductor ffmpeg/Kodi
             headers_list = [
                 f"User-Agent={urllib.parse.quote(UA)}",
                 f"Referer={urllib.parse.quote('https://ok.ru/')}",
