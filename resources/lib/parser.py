@@ -47,7 +47,7 @@ def resolve(embed_url):
     return None
 
 def resolve_mailru(embed_url):
-    """Extracción nativa para Mail.ru"""
+    """Extracción nativa para Mail.ru compatible con Kodi"""
     try:
         match_id = re.search(r'(\d{15,25})', embed_url)
         if not match_id:
@@ -66,7 +66,7 @@ def resolve_mailru(embed_url):
             return None
 
         stream_url = None
-        for quality in ['1080p', '720p', '480p', '360p']:
+        for quality in ['1080p', '720p', '480p', '360p', '1080', '720']:
             for v in videos:
                 if str(v.get('key')) == quality and v.get('url'):
                     stream_url = v.get('url')
@@ -80,6 +80,9 @@ def resolve_mailru(embed_url):
         if stream_url:
             if stream_url.startswith("//"):
                 stream_url = "https:" + stream_url
+            elif stream_url.startswith("http://"):
+                stream_url = stream_url.replace("http://", "https://")
+
             stream_url = html.unescape(stream_url)
             headers = f"|User-Agent={urllib.parse.quote(UA)}&Referer={urllib.parse.quote('https://my.mail.ru/')}"
             return stream_url + headers
