@@ -34,7 +34,7 @@ def run(argv):
     HANDLE = int(argv[1]); p = urllib.parse.parse_qs(argv[2][1:]); a = p.get('action', [''])[0]
     
     # === CAMBIO CLAVE 2: Proceso de reproducción unificado (Mail.ru + Dzen.ru) ===
-    if a == 'play':
+   if a == 'play':
         url_post = urllib.parse.unquote(p['url'][0])
         src = extract(url_post)
         
@@ -43,7 +43,6 @@ def run(argv):
             xbmcplugin.setResolvedUrl(HANDLE, False, xbmcgui.ListItem())
             return
 
-        # Busca el primer servidor compatible (ya sea Mail.ru o Dzen)
         stream_url = None
         for server_name, embed_url in src:
             stream_url = resolve(embed_url)
@@ -52,6 +51,8 @@ def run(argv):
 
         if stream_url:
             play_item = xbmcgui.ListItem(path=stream_url)
+            play_item.setMimeType('video/mp4')
+            play_item.setContentLookup(False)
             play_item.setProperty('IsPlayable', 'true')
             xbmcplugin.setResolvedUrl(HANDLE, True, play_item)
         else:
