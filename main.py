@@ -1,4 +1,4 @@
-from resources.lib import router
-
+import sys
+from resources.lib.router import run
 if __name__ == '__main__':
-    router.run()
+    run(sys.argv)
