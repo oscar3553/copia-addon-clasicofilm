@@ -53,28 +53,57 @@ def resolve(embed_url):
     return None, None
 
 def resolve_rumble(embed_url):
-    """Extrae la URL de streaming (.m3u8 o .mp4) desde el embed de Rumble"""
+    """Extrae el enlace .m3u8 o .mp4 desde el reproductor/embed de Rumble"""
     try:
+        if not embed_url.startswith('http'):
+            embed_url = 'https://' + embed_url
+            
         html_content = fetch(embed_url, referer='https://rumble.com/')
         if not html_content:
+            log("No se pudo obtener el HTML del embed de Rumble", xbmc.LOGERROR)
             return None, None
 
-        # 1. Buscar enlace HLS (.m3u8) en la respuesta del embed
-        m3u8_match = re.search(r'["\'](https?://[^\s"\']+\.m3u8[^\s"\']*)["\']', html_content)
-        if m3u8_match:
-            stream_url = html.unescape(m3u8_match.group(1)).replace('\\/', '/')
-            headers = f"|User-Agent={urllib.parse.quote(UA)}&Referer={urllib.parse.quote('https://rumble.com/')}"
-            return stream_url + headers, 'hls'
+        stream_url = None
 
-        # 2. Fallback: Buscar enlace directo .mp4
-        mp4_match = re.search(r'["\'](https?://[^\s"\']+\.mp4[^\s"\']*)["\']', html_content)
-        if mp4_match:
-            stream_url = html.unescape(mp4_match.group(1)).replace('\\/', '/')
+        # 1. Buscar en el objeto de configuración JS de Rumble: Rumble("play", {...})
+        json_match = re.search(r'Rumble\s*\(\s*["\']play["\']\s*,\s*(\{.*?\})\s*\)\s*;', html_content, re.DOTALL)
+        if json_match:
+            try:
+                data = json.loads(json_match.group(1))
+                # Intentar obtener la URL HLS (.m3u8) o MP4 directamente del JSON
+                u_data = data.get('u', {})
+                if isinstance(u_data, dict):
+                    hls_data = u_data.get('hls', {})
+                    if isinstance(hls_data, dict) and hls_data.get('url'):
+                        stream_url = hls_data.get('url')
+                    elif u_data.get('mp4', {}).get('url'):
+                        stream_url = u_data.get('mp4', {}).get('url')
+            except Exception as e:
+                log(f"Error parseando JSON de Rumble: {str(e)}", xbmc.LOGWARNING)
+
+        # 2. Fallback: Buscar directamente cualquier URL .m3u8 en el código HTML/JS
+        if not stream_url:
+            m3u8_find = re.findall(r'https?://[^\s"\']+\.m3u8[^\s"\']*', html_content)
+            if m3u8_find:
+                stream_url = m3u8_find[0]
+
+        # 3. Fallback 2: Buscar cualquier URL .mp4
+        if not stream_url:
+            mp4_find = re.findall(r'https?://[^\s"\']+\.mp4[^\s"\']*', html_content)
+            if mp4_find:
+                stream_url = mp4_find[0]
+
+        if stream_url:
+            # Limpiar barras escapadas (\/) si las hubiera
+            stream_url = html.unescape(stream_url).replace('\\/', '/')
             headers = f"|User-Agent={urllib.parse.quote(UA)}&Referer={urllib.parse.quote('https://rumble.com/')}"
-            return stream_url + headers, 'mp4'
+            
+            stream_type = 'hls' if '.m3u8' in stream_url else 'mp4'
+            log(f"Rumble resuelto con éxito ({stream_type}): {stream_url}")
+            return stream_url + headers, stream_type
 
     except Exception as e:
-        log(f"Error en Rumble: {str(e)}", xbmc.LOGERROR)
+        log(f"Excepción en resolve_rumble: {str(e)}", xbmc.LOGERROR)
 
     return None, None
 
