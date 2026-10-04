@@ -1,8 +1,8 @@
 import urllib.parse, xbmcplugin, xbmcgui, xbmc
-from .feed import latest, labels, by_label, search
-from .parser import extract, resolve  # <--- Importamos 'resolve' genérico que soporta Mail.ru y Dzen.ru
+from .feed import latest,labels,by_label,search
+from .parser import extract,resolve_dzen
 
-HANDLE = None
+HANDLE=None
 
 def movie_item(m, argv):
     # Título en dorado para la lista
@@ -16,51 +16,32 @@ def movie_item(m, argv):
         'cast': m['cast'], 'mediatype': 'movie', 'year': int(m['year']) if m['year'] else 0
     })
     
-    # Artes con rutas locales
+    # Artes con rutas locales para asegurar logo
     li.setArt({
         'thumb': m['image'], 'poster': m['image'], 
         'icon': 'special://home/addons/plugin.video.clasicofilm/icon.png',
         'fanart': 'special://home/addons/plugin.video.clasicofilm/fanart.jpg'
     })
     
-    # === CAMBIO CLAVE 1: Marcar como reproducible ===
-    li.setProperty('IsPlayable', 'true')
-    
-    u = f"{argv[0]}?action=play&url={urllib.parse.quote(m['url'])}"
+    li.setProperty('IsPlayable', 'false')
+    u = f"{argv[0]}?action=info_and_play&url={urllib.parse.quote(m['url'])}"
     xbmcplugin.addDirectoryItem(HANDLE, u, li, False)
 
 def run(argv):
     global HANDLE
-    HANDLE = int(argv[1]); p = urllib.parse.parse_qs(argv[2][1:]); a = p.get('action', [''])[0]
+    HANDLE=int(argv[1]); p=urllib.parse.parse_qs(argv[2][1:]); a=p.get('action',[''])[0]
     
-    # === CAMBIO CLAVE 2: Proceso de reproducción unificado (Mail.ru + Dzen.ru) ===
-   if a == 'play':
+    if a=='info_and_play':
+        xbmc.executebuiltin('Action(Info)') # Forzamos la ficha al hacer click
         url_post = urllib.parse.unquote(p['url'][0])
         src = extract(url_post)
-        
-        if not src:
-            xbmcgui.Dialog().notification('Clasicofilm', 'No se encontraron vídeos', xbmcgui.NOTIFICATION_ERROR)
-            xbmcplugin.setResolvedUrl(HANDLE, False, xbmcgui.ListItem())
-            return
-
-        stream_url = None
-        for server_name, embed_url in src:
-            stream_url = resolve(embed_url)
-            if stream_url:
-                break
-
-        if stream_url:
-            play_item = xbmcgui.ListItem(path=stream_url)
-            play_item.setMimeType('video/mp4')
-            play_item.setContentLookup(False)
-            play_item.setProperty('IsPlayable', 'true')
-            xbmcplugin.setResolvedUrl(HANDLE, True, play_item)
-        else:
-            xbmcgui.Dialog().notification('Clasicofilm', 'Error al resolver el enlace', xbmcgui.NOTIFICATION_ERROR)
-            xbmcplugin.setResolvedUrl(HANDLE, False, xbmcgui.ListItem())
+        dzen = [u for n,u in src if n=='Dzen']
+        if dzen:
+            f = resolve_dzen(dzen[0])
+            if f: xbmcplugin.setResolvedUrl(HANDLE, True, xbmcgui.ListItem(path=f))
         return
         
-    if a == 'latest':
+    if a=='latest':
         items, n_url = latest(p.get('next_page', [None])[0])
         xbmcplugin.setContent(HANDLE, 'movies')
         for m in items: movie_item(m, argv)
@@ -69,21 +50,21 @@ def run(argv):
             xbmcplugin.addDirectoryItem(HANDLE, u, xbmcgui.ListItem(label='[COLOR gold]➡ SIGUIENTE PÁGINA[/COLOR]'), True)
         xbmcplugin.endOfDirectory(HANDLE); return
 
-    if a == 'genres':
+    if a=='genres':
         for l in labels():
             li = xbmcgui.ListItem(label=f"[COLOR gold]•[/COLOR] {l}")
             li.setArt({'icon': 'special://home/addons/plugin.video.clasicofilm/icon.png'})
             xbmcplugin.addDirectoryItem(HANDLE, f"{argv[0]}?action=genre&name={urllib.parse.quote(l)}", li, True)
         xbmcplugin.endOfDirectory(HANDLE); return
 
-    if a == 'genre':
+    if a=='genre':
         name = p['name'][0]
         items, n_url = by_label(name, p.get('next_page', [None])[0])
         xbmcplugin.setContent(HANDLE, 'movies')
         for m in items: movie_item(m, argv)
         xbmcplugin.endOfDirectory(HANDLE); return
 
-    if a == 'search':
+    if a=='search':
         kb = xbmcgui.Dialog().input('Buscar película...', type=xbmcgui.INPUT_ALPHANUM)
         if kb:
             items, _ = search(kb)
@@ -93,7 +74,7 @@ def run(argv):
         return
 
     # MENÚ PRINCIPAL (3 CARPETAS)
-    menu = [('🎬 ÚLTIMAS NOVEDADES', 'latest'), ('🎭 GÉNEROS', 'genres'), ('🔍 BUSCAR', 'search')]
+    menu = [('🎬 ÚLTIMAS NOVEDADES','latest'), ('🎭 GÉNEROS','genres'), ('🔍 BUSCAR','search')]
     for label, act in menu:
         li = xbmcgui.ListItem(label=label)
         li.setArt({'icon': 'special://home/addons/plugin.video.clasicofilm/icon.png'})
