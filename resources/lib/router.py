@@ -38,8 +38,6 @@ def run(argv):
             return
 
         stream_url, stream_type = None, None
-        
-        # Recorrer las fuentes encontradas (Rumble o Dzen)
         for server_name, embed_url in src:
             stream_url, stream_type = resolve(embed_url)
             if stream_url:
@@ -49,7 +47,7 @@ def run(argv):
             play_item = xbmcgui.ListItem(path=stream_url)
             play_item.setProperty('IsPlayable', 'true')
 
-            # Configuración según el tipo de stream
+            # Si es el reproductor HLS de Rumble o Dzen (.m3u8), activamos inputstream
             if stream_type == 'hls':
                 play_item.setMimeType('application/vnd.apple.mpegurl')
                 play_item.setProperty('inputstream', 'inputstream.adaptive')
