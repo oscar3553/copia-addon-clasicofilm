@@ -38,6 +38,8 @@ def run(argv):
             return
 
         stream_url, stream_type = None, None
+        
+        # Recorre las fuentes encontradas (Archive.org primero, luego Dzen)
         for server_name, embed_url in src:
             stream_url, stream_type = resolve(embed_url)
             if stream_url:
@@ -47,12 +49,13 @@ def run(argv):
             play_item = xbmcgui.ListItem(path=stream_url)
             play_item.setProperty('IsPlayable', 'true')
 
-            # Si es el reproductor HLS de Rumble o Dzen (.m3u8), activamos inputstream
+            # Si es Dzen.ru con HLS (.m3u8), activamos InputStream Adaptive
             if stream_type == 'hls':
                 play_item.setMimeType('application/vnd.apple.mpegurl')
                 play_item.setProperty('inputstream', 'inputstream.adaptive')
                 play_item.setProperty('inputstream.adaptive.manifest_type', 'hls')
             else:
+                # Si es Archive.org (MP4 directo), reproducción nativa de Kodi
                 play_item.setMimeType('video/mp4')
 
             play_item.setContentLookup(False)
