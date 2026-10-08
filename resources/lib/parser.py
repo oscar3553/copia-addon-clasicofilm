@@ -1,7 +1,4 @@
 import re, urllib.request, urllib.parse, html, xbmc, json
-import xbmcaddon
-
-addon = xbmcaddon.Addon()
 
 UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
 
@@ -114,57 +111,47 @@ def resolve_dzen(embed_url):
     return None, None
 
 def resolve_vk(embed_url):
+    """
+    Scraping del reproductor VK (vkvideo.ru / vk.com) sin API ni token.
+    Busca URLs .m3u8 / .mp4 dentro del HTML/JS del reproductor.
+    """
     try:
-        # 1. Formato clásico: /video-12345_67890
-        m = re.search(r'/video(-?\d+)_(\d+)', embed_url)
-        if m:
-            owner_id, video_id = m.group(1), m.group(2)
-        else:
-            # 2. Formato video_ext.php?oid=-12345&id=67890
-            oid = re.search(r'oid=(-?\d+)', embed_url)
-            vid = re.search(r'id=(\d+)', embed_url)
-
-            if oid and vid:
-                owner_id = oid.group(1)
-                video_id = vid.group(1)
-            else:
-                log("VK: No se pudo extraer owner_id y video_id", xbmc.LOGERROR)
-                return None, None
-
-        # Leer token desde settings
-        token = addon.getSetting("vk_token")
-
-        api_url = (
-            "https://api.vk.com/method/video.get?"
-            f"videos={owner_id}_{video_id}&access_token={token}&v=5.131"
-        )
-
-        log(f"Llamando API VK: {api_url}")
-
-        req = urllib.request.Request(api_url, headers={'User-Agent': UA})
-        data = json.loads(urllib.request.urlopen(req).read().decode('utf-8'))
-
-        files = data["response"]["items"][0]["files"]
-
-        stream_url = (
-            files.get("hls") or
-            files.get("mp4_1080") or
-            files.get("mp4_720") or
-            files.get("mp4_480") or
-            files.get("mp4_360") or
-            files.get("mp4_240")
-        )
-
-        if not stream_url:
-            log("VK: No hay streams disponibles", xbmc.LOGERROR)
+        # Usamos vkvideo.ru como referer si es iframe de vkvideo
+        referer = 'https://vkvideo.ru/' if 'vkvideo.ru' in embed_url else 'https://vk.com/'
+        html_content = fetch(embed_url, referer=referer)
+        if not html_content:
+            log("VK: no se pudo obtener HTML del reproductor", xbmc.LOGERROR)
             return None, None
 
-        headers = f"|User-Agent={urllib.parse.quote(UA)}"
-        stream_type = 'hls' if '.m3u8' in stream_url else 'mp4'
+        # 1. Intento: buscar manifest HLS típico en JSON interno
+        # Ejemplos comunes: "hlsManifestUrl":"https://...m3u8"
+        hls_match = re.search(r'hlsManifestUrl["\']?\s*:\s*["\'](https?://[^\s"\']+\.m3u8[^\s"\']*)["\']', html_content)
+        if not hls_match:
+            # 2. Intento genérico: cualquier URL .m3u8 dentro de comillas
+            hls_match = re.search(r'["\'](https?://[^\s"\']+\.m3u8[^\s"\']*)["\']', html_content)
 
-        log(f"VK resuelto: {stream_url}")
+        stream_url = None
+        stream_type = 'hls'
+
+        if hls_match:
+            stream_url = html.unescape(hls_match.group(1)).replace('\\/', '/')
+            log(f"VK HLS encontrado: {stream_url}")
+        else:
+            # 3. Fallback: buscar MP4 directo
+            mp4_match = re.search(r'["\'](https?://[^\s"\']+\.mp4[^\s"\']*)["\']', html_content)
+            if mp4_match:
+                stream_url = html.unescape(mp4_match.group(1)).replace('\\/', '/')
+                stream_type = 'mp4'
+                log(f"VK MP4 encontrado: {stream_url}")
+
+        if not stream_url:
+            log("VK: no se encontró ninguna URL de vídeo en el HTML", xbmc.LOGERROR)
+            return None, None
+
+        headers = f"|User-Agent={urllib.parse.quote(UA)}&Referer={urllib.parse.quote(referer)}"
+        log(f"VK resuelto ({stream_type}): {stream_url}")
         return stream_url + headers, stream_type
 
     except Exception as e:
-        log(f"Error resolviendo VK: {str(e)}", xbmc.LOGERROR)
+        log(f"Error resolviendo VK (scraping): {str(e)}", xbmc.LOGERROR)
         return None, None
