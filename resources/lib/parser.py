@@ -24,24 +24,24 @@ def extract(post_url):
 
     sources = []
 
-    # 1. Archive.org
+    # Archive.org
     archive_matches = re.findall(r'(archive\.org/embed/[a-zA-Z0-9_\-]+)', html_content)
     for archive_url in set(archive_matches):
         clean_url = archive_url if archive_url.startswith('http') else f"https://{archive_url}"
         sources.append(('Archive.org', clean_url))
 
-    # 2. Dzen.ru / Yandex
+    # Dzen.ru
     dzen_matches = re.findall(r'(dzen\.ru/embed/[a-zA-Z0-9_\-]+|zen\.yandex\.ru/embed/[a-zA-Z0-9_\-]+)', html_content)
     for dzen_url in set(dzen_matches):
         clean_url = dzen_url if dzen_url.startswith('http') else f"https://{dzen_url}"
         sources.append(('Dzen.ru', clean_url))
 
-    # 3. VK clásico
+    # VK clásico
     vk_matches = re.findall(r'(https?://(?:vk\.com|vk\.ru)/video[-]?\d+_\d+)', html_content)
     for vk_url in set(vk_matches):
         sources.append(('VK', vk_url))
 
-    # 4. VK video_ext.php (vkvideo.ru o vk.com)
+    # VK video_ext.php
     vk_ext_matches = re.findall(r'(https?://(?:vkvideo\.ru|vk\.com)/video_ext\.php\?[^"\']+)', html_content)
     for vk_url in set(vk_ext_matches):
         sources.append(('VK', vk_url))
@@ -112,46 +112,50 @@ def resolve_dzen(embed_url):
 
 def resolve_vk(embed_url):
     """
-    Scraping del reproductor VK (vkvideo.ru / vk.com) sin API ni token.
-    Busca URLs .m3u8 / .mp4 dentro del HTML/JS del reproductor.
+    Scraping del reproductor móvil de VK (Android compatible).
     """
     try:
-        # Usamos vkvideo.ru como referer si es iframe de vkvideo
-        referer = 'https://vkvideo.ru/' if 'vkvideo.ru' in embed_url else 'https://vk.com/'
-        html_content = fetch(embed_url, referer=referer)
-        if not html_content:
-            log("VK: no se pudo obtener HTML del reproductor", xbmc.LOGERROR)
-            return None, None
-
-        # 1. Intento: buscar manifest HLS típico en JSON interno
-        # Ejemplos comunes: "hlsManifestUrl":"https://...m3u8"
-        hls_match = re.search(r'hlsManifestUrl["\']?\s*:\s*["\'](https?://[^\s"\']+\.m3u8[^\s"\']*)["\']', html_content)
-        if not hls_match:
-            # 2. Intento genérico: cualquier URL .m3u8 dentro de comillas
-            hls_match = re.search(r'["\'](https?://[^\s"\']+\.m3u8[^\s"\']*)["\']', html_content)
-
-        stream_url = None
-        stream_type = 'hls'
-
-        if hls_match:
-            stream_url = html.unescape(hls_match.group(1)).replace('\\/', '/')
-            log(f"VK HLS encontrado: {stream_url}")
+        # Extraer owner_id y video_id
+        m = re.search(r'/video(-?\d+)_(\d+)', embed_url)
+        if m:
+            owner_id, video_id = m.group(1), m.group(2)
         else:
-            # 3. Fallback: buscar MP4 directo
-            mp4_match = re.search(r'["\'](https?://[^\s"\']+\.mp4[^\s"\']*)["\']', html_content)
-            if mp4_match:
-                stream_url = html.unescape(mp4_match.group(1)).replace('\\/', '/')
-                stream_type = 'mp4'
-                log(f"VK MP4 encontrado: {stream_url}")
+            oid = re.search(r'oid=(-?\d+)', embed_url)
+            vid = re.search(r'id=(\d+)', embed_url)
+            if oid and vid:
+                owner_id = oid.group(1)
+                video_id = vid.group(1)
+            else:
+                log("VK: No se pudo extraer owner_id y video_id", xbmc.LOGERROR)
+                return None, None
 
-        if not stream_url:
-            log("VK: no se encontró ninguna URL de vídeo en el HTML", xbmc.LOGERROR)
+        # Reproductor móvil (funciona en Android)
+        mobile_url = f"https://m.vk.com/video?z=video{owner_id}_{video_id}"
+
+        html_content = fetch(mobile_url, referer='https://m.vk.com/')
+        if not html_content:
+            log("VK: no se pudo obtener HTML móvil", xbmc.LOGERROR)
             return None, None
 
-        headers = f"|User-Agent={urllib.parse.quote(UA)}&Referer={urllib.parse.quote(referer)}"
-        log(f"VK resuelto ({stream_type}): {stream_url}")
-        return stream_url + headers, stream_type
+        # Buscar manifest HLS dentro del JSON del reproductor móvil
+        hls_match = re.search(r'"url"\s*:\s*"([^"]+\.m3u8[^"]*)"', html_content)
+        if hls_match:
+            stream_url = hls_match.group(1).replace('\\/', '/')
+            headers = f"|User-Agent={urllib.parse.quote(UA)}&Referer={urllib.parse.quote('https://m.vk.com/')}"
+            log(f"VK móvil HLS encontrado: {stream_url}")
+            return stream_url + headers, 'hls'
+
+        # Fallback: MP4
+        mp4_match = re.search(r'"url"\s*:\s*"([^"]+\.mp4[^"]*)"', html_content)
+        if mp4_match:
+            stream_url = mp4_match.group(1).replace('\\/', '/')
+            headers = f"|User-Agent={urllib.parse.quote(UA)}&Referer={urllib.parse.quote('https://m.vk.com/')}"
+            log(f"VK móvil MP4 encontrado: {stream_url}")
+            return stream_url + headers, 'mp4'
+
+        log("VK: no se encontró stream en reproductor móvil", xbmc.LOGERROR)
+        return None, None
 
     except Exception as e:
-        log(f"Error resolviendo VK (scraping): {str(e)}", xbmc.LOGERROR)
+        log(f"Error resolviendo VK móvil: {str(e)}", xbmc.LOGERROR)
         return None, None
