@@ -17,6 +17,10 @@ def fetch(url, referer='https://archive.org/'):
         log(f"Error consultando URL ({url}): {str(e)}", xbmc.LOGERROR)
         return ""
 
+# ============================================================
+# EXTRACTOR GENERAL
+# ============================================================
+
 def extract(post_url):
     html_content = fetch(post_url)
     if not html_content:
@@ -30,36 +34,42 @@ def extract(post_url):
         clean_url = archive_url if archive_url.startswith('http') else f"https://{archive_url}"
         sources.append(('Archive.org', clean_url))
 
-    # Dzen.ru
+    # Dzen.ru / Yandex
     dzen_matches = re.findall(r'(dzen\.ru/embed/[a-zA-Z0-9_\-]+|zen\.yandex\.ru/embed/[a-zA-Z0-9_\-]+)', html_content)
     for dzen_url in set(dzen_matches):
         clean_url = dzen_url if dzen_url.startswith('http') else f"https://{dzen_url}"
         sources.append(('Dzen.ru', clean_url))
 
-    # VK clásico
-    vk_matches = re.findall(r'(https?://(?:vk\.com|vk\.ru)/video[-]?\d+_\d+)', html_content)
-    for vk_url in set(vk_matches):
-        sources.append(('VK', vk_url))
-
-    # VK video_ext.php
-    vk_ext_matches = re.findall(r'(https?://(?:vkvideo\.ru|vk\.com)/video_ext\.php\?[^"\']+)', html_content)
-    for vk_url in set(vk_ext_matches):
-        sources.append(('VK', vk_url))
+    # Mail.ru
+    mail_matches = re.findall(r'(https?://my\.mail\.ru/video/embed/\d+)', html_content)
+    for mail_url in set(mail_matches):
+        sources.append(('Mail.ru', mail_url))
 
     log(f"Fuentes detectadas: {len(sources)}")
     return sources
 
+# ============================================================
+# ROUTER DE RESOLVER
+# ============================================================
+
 def resolve(embed_url):
     log(f"Resolviendo servidor para: {embed_url}")
+
     if 'archive.org' in embed_url:
         return resolve_archive(embed_url)
+
     elif 'dzen.ru' in embed_url or 'zen.yandex' in embed_url:
         return resolve_dzen(embed_url)
-    elif 'vk.com' in embed_url or 'vk.ru' in embed_url or 'vkvideo.ru' in embed_url:
-        return resolve_vk(embed_url)
+
+    elif 'mail.ru' in embed_url:
+        return resolve_mailru(embed_url)
 
     log(f"Servidor no soportado: {embed_url}", xbmc.LOGWARNING)
     return None, None
+
+# ============================================================
+# RESOLVER ARCHIVE.ORG
+# ============================================================
 
 def resolve_archive(embed_url):
     try:
@@ -91,6 +101,10 @@ def resolve_archive(embed_url):
 
     return None, None
 
+# ============================================================
+# RESOLVER DZEN.RU
+# ============================================================
+
 def resolve_dzen(embed_url):
     try:
         html_content = fetch(embed_url, referer='https://dzen.ru/')
@@ -110,52 +124,43 @@ def resolve_dzen(embed_url):
 
     return None, None
 
-def resolve_vk(embed_url):
+# ============================================================
+# RESOLVER MAIL.RU
+# ============================================================
+
+def resolve_mailru(embed_url):
     """
-    Scraping del reproductor móvil de VK (Android compatible).
+    Scraping del reproductor de my.mail.ru (compatible con Android).
+    Extrae URLs .mp4 y .m3u8 del JSON interno.
     """
     try:
-        # Extraer owner_id y video_id
-        m = re.search(r'/video(-?\d+)_(\d+)', embed_url)
-        if m:
-            owner_id, video_id = m.group(1), m.group(2)
-        else:
-            oid = re.search(r'oid=(-?\d+)', embed_url)
-            vid = re.search(r'id=(\d+)', embed_url)
-            if oid and vid:
-                owner_id = oid.group(1)
-                video_id = vid.group(1)
-            else:
-                log("VK: No se pudo extraer owner_id y video_id", xbmc.LOGERROR)
-                return None, None
-
-        # Reproductor móvil (funciona en Android)
-        mobile_url = f"https://m.vk.com/video?z=video{owner_id}_{video_id}"
-
-        html_content = fetch(mobile_url, referer='https://m.vk.com/')
+        html_content = fetch(embed_url, referer='https://my.mail.ru/')
         if not html_content:
-            log("VK: no se pudo obtener HTML móvil", xbmc.LOGERROR)
+            log("Mail.ru: no se pudo obtener HTML", xbmc.LOGERROR)
             return None, None
 
-        # Buscar manifest HLS dentro del JSON del reproductor móvil
-        hls_match = re.search(r'"url"\s*:\s*"([^"]+\.m3u8[^"]*)"', html_content)
-        if hls_match:
-            stream_url = hls_match.group(1).replace('\\/', '/')
-            headers = f"|User-Agent={urllib.parse.quote(UA)}&Referer={urllib.parse.quote('https://m.vk.com/')}"
-            log(f"VK móvil HLS encontrado: {stream_url}")
-            return stream_url + headers, 'hls'
+        # Buscar JSON interno con las URLs de vídeo
+        json_match = re.search(r'window\.videoData\s*=\s*(\{.*?\});', html_content, re.DOTALL)
+        if not json_match:
+            log("Mail.ru: no se encontró videoData", xbmc.LOGERROR)
+            return None, None
 
-        # Fallback: MP4
-        mp4_match = re.search(r'"url"\s*:\s*"([^"]+\.mp4[^"]*)"', html_content)
-        if mp4_match:
-            stream_url = mp4_match.group(1).replace('\\/', '/')
-            headers = f"|User-Agent={urllib.parse.quote(UA)}&Referer={urllib.parse.quote('https://m.vk.com/')}"
-            log(f"VK móvil MP4 encontrado: {stream_url}")
-            return stream_url + headers, 'mp4'
+        data = json.loads(json_match.group(1))
 
-        log("VK: no se encontró stream en reproductor móvil", xbmc.LOGERROR)
+        # Buscar streams
+        streams = data.get("videos", [])
+        for s in streams:
+            url = s.get("url")
+            if url:
+                url = url.replace("\\/", "/")
+                stream_type = "hls" if ".m3u8" in url else "mp4"
+                headers = f"|User-Agent={urllib.parse.quote(UA)}&Referer={urllib.parse.quote('https://my.mail.ru/')}"
+                log(f"Mail.ru resuelto ({stream_type}): {url}")
+                return url + headers, stream_type
+
+        log("Mail.ru: no se encontró stream válido", xbmc.LOGERROR)
         return None, None
 
     except Exception as e:
-        log(f"Error resolviendo VK móvil: {str(e)}", xbmc.LOGERROR)
+        log(f"Error resolviendo Mail.ru: {str(e)}", xbmc.LOGERROR)
         return None, None
