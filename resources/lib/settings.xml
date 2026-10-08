@@ -1,1 +1,4 @@
+<settings>
+    <setting id="vk_token" type="text" label="Token VK" default="" />
+</settings>
 
