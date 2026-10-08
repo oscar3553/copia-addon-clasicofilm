@@ -1,4 +1,7 @@
 import re, urllib.request, urllib.parse, html, xbmc, json
+import xbmcaddon
+
+addon = xbmcaddon.Addon()
 
 UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
 
@@ -36,7 +39,7 @@ def extract(post_url):
         clean_url = dzen_url if dzen_url.startswith('http') else f"https://{dzen_url}"
         sources.append(('Dzen.ru', clean_url))
 
-    # 3. VK.com / VK.ru formato clásico
+    # 3. VK clásico
     vk_matches = re.findall(r'(https?://(?:vk\.com|vk\.ru)/video[-]?\d+_\d+)', html_content)
     for vk_url in set(vk_matches):
         sources.append(('VK', vk_url))
@@ -128,7 +131,8 @@ def resolve_vk(embed_url):
                 log("VK: No se pudo extraer owner_id y video_id", xbmc.LOGERROR)
                 return None, None
 
-        token = ""  # vídeos públicos → sin token
+        # Leer token desde settings
+        token = addon.getSetting("vk_token")
 
         api_url = (
             "https://api.vk.com/method/video.get?"
