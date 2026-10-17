@@ -1,4 +1,9 @@
-import re, urllib.request, urllib.parse, html, xbmc, json
+import re
+import urllib.request
+import urllib.parse
+import html
+import xbmc
+import json
 
 UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
 
@@ -72,16 +77,17 @@ def resolve_flyfile(embed_url):
 
         stream_url = None
         
-        # Lista de posibles endpoints de API según su estructura de rutas
+        # Endpoints ampliados de la API de Flyfile
         api_targets = [
-            f"https://api.flyfile.app/api/public/media/{video_id}",
+            f"https://api.flyfile.app/api/public/video/{video_id}",
+            f"https://api.flyfile.app/api/public/source/{video_id}",
             f"https://api.flyfile.app/api/public/embed/{video_id}",
+            f"https://api.flyfile.app/api/public/media/{video_id}",
             f"https://api.flyfile.app/v1/media/{video_id}",
-            f"https://api.flyfile.app/v1/embed/{video_id}",
-            f"https://api.flyfile.app/api/media/{video_id}"
+            f"https://api.flyfile.app/v1/embed/{video_id}"
         ]
 
-        # 1. Intentos vía API con cabeceras completas
+        # 1. Intentos vía API con cabeceras de origen y sesión
         for target in api_targets:
             try:
                 req = urllib.request.Request(target, headers={
@@ -93,10 +99,8 @@ def resolve_flyfile(embed_url):
                 res_bytes = urllib.request.urlopen(req, timeout=5).read()
                 res_text = res_bytes.decode('utf-8', 'ignore')
                 
-                # Si responde un JSON, escaneamos la respuesta
                 if res_text.startswith('{') or res_text.startswith('['):
                     data = json.loads(res_text)
-                    # Búsqueda en estructuras JSON comunes
                     if isinstance(data, dict):
                         stream_url = data.get('file') or data.get('url') or data.get('stream') or data.get('src')
                         if not stream_url and 'data' in data and isinstance(data['data'], dict):
@@ -105,15 +109,14 @@ def resolve_flyfile(embed_url):
                 if stream_url:
                     log(f"Flyfile: Encontrado vía API ({target}): {stream_url}")
                     break
-            except Exception as e:
+            except Exception:
                 continue
 
-        # 2. Fallback direct al servidor CDN (omg10.com u otros servidores de entrega)
+        # 2. Fallback al servidor CDN si la API no entrega enlace directo
         if not stream_url:
             log("Flyfile: API no devolvió enlace directo, probando extracción CDN...")
             html_content = fetch(embed_url, referer='https://flyf.lat/')
             
-            # Buscar patrones tipo https://omg10.com/4/... o master.m3u8
             match = re.search(r'["\']((?:https?:)?//(?:omg\d+\.[a-z]+|[^\s"\'<>]+)/(?:4/\d+|master\.m3u8|[^\s"\'<>]+\.(?:m3u8|mp4)))["\']', html_content)
             if match:
                 stream_url = match.group(1)
@@ -123,7 +126,6 @@ def resolve_flyfile(embed_url):
             if stream_url.startswith('//'):
                 stream_url = f"https:{stream_url}"
 
-            # Cabeceras requeridas para la reproducción HLS en Kodi Android
             headers = f"|User-Agent={urllib.parse.quote(UA)}&Referer={urllib.parse.quote('https://flyf.lat/')}&Origin={urllib.parse.quote('https://flyf.lat')}"
             stream_type = 'hls' if '.m3u8' in stream_url or '/4/' in stream_url else 'mp4'
             
