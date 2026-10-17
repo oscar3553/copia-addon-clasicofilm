@@ -59,30 +59,41 @@ def resolve(embed_url):
     return None, None
 
 # ============================================================
-# RESOLVER FLYFILE
+# RESOLVER FLYFILE (Mejorado para Android)
 # ============================================================
 
 def resolve_flyfile(embed_url):
     try:
+        # Aseguramos que la URL embed tenga formato completo
+        if not embed_url.startswith('http'):
+            embed_url = f"https://{embed_url}"
+
         html_content = fetch(embed_url, referer=embed_url)
         if not html_content:
-            log("Flyfile: no se pudo obtener HTML", xbmc.LOGERROR)
+            log("Flyfile: no se pudo obtener el HTML de la página embed", xbmc.LOGERROR)
             return None, None
 
-        # Buscar el archivo master.m3u8 en el HTML/JS
-        match = re.search(r'["\'](https?://[^\s"\']+/master\.m3u8[^\s"\']*)["\']', html_content)
+        # 1. Búsqueda principal: Enlace directo al master.m3u8
+        match = re.search(r'(https?://[^\s"\'<>]+?/master\.m3u8[^\s"\'<>]*)', html_content)
+        
+        # 2. Búsqueda secundaria: Cualquier .m3u8 dentro de variables JS
         if not match:
-            # Búsqueda alternativa para cualquier archivo .m3u8 o .mp4
-            match = re.search(r'["\'](https?://[^\s"\']+\.(?:m3u8|mp4)[^\s"\']*)["\']', html_content)
+            match = re.search(r'(https?://[^\s"\'<>]+?\.(?:m3u8|mp4)[^\s"\'<>]*)', html_content)
 
         if match:
             stream_url = html.unescape(match.group(1)).replace('\\/', '/')
+            
+            # Limpieza de comillas o caracteres sobrantes al final
+            stream_url = re.sub(r'["\';,].*$', '', stream_url)
+
+            # Formato de cabeceras compatible con Kodi Android
             headers = f"|User-Agent={urllib.parse.quote(UA)}&Referer={urllib.parse.quote(embed_url)}"
+            
             stream_type = 'hls' if '.m3u8' in stream_url else 'mp4'
-            log(f"Flyfile resuelto ({stream_type}): {stream_url}")
+            log(f"Flyfile resuelto exitosamente ({stream_type}): {stream_url}")
             return stream_url + headers, stream_type
 
-        log("Flyfile: no se encontró stream m3u8/mp4", xbmc.LOGERROR)
+        log("Flyfile: No se encontró ningún patrón m3u8 en el HTML", xbmc.LOGERROR)
 
     except Exception as e:
         log(f"Error resolviendo Flyfile: {str(e)}", xbmc.LOGERROR)
