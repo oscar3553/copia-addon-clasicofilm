@@ -59,35 +59,37 @@ def resolve(embed_url):
     return None, None
 
 # ============================================================
-# RESOLVER FLYFILE (Mejorado para Android)
+# RESOLVER FLYFILE (Ajuste de Referer y protocolo)
 # ============================================================
 
 def resolve_flyfile(embed_url):
     try:
-        # Aseguramos que la URL embed tenga formato completo
         if not embed_url.startswith('http'):
             embed_url = f"https://{embed_url}"
 
-        html_content = fetch(embed_url, referer=embed_url)
+        html_content = fetch(embed_url, referer='https://flyf.lat/')
         if not html_content:
             log("Flyfile: no se pudo obtener el HTML de la página embed", xbmc.LOGERROR)
             return None, None
 
-        # 1. Búsqueda principal: Enlace directo al master.m3u8
-        match = re.search(r'(https?://[^\s"\'<>]+?/master\.m3u8[^\s"\'<>]*)', html_content)
+        # 1. Búsqueda con o sin protocolo (https: o //)
+        match = re.search(r'["\']((?:https?:)?//[^\s"\'<>]+?/master\.m3u8[^\s"\'<>]*)["\']', html_content)
         
-        # 2. Búsqueda secundaria: Cualquier .m3u8 dentro de variables JS
+        # 2. Búsqueda secundaria si no es master.m3u8
         if not match:
-            match = re.search(r'(https?://[^\s"\'<>]+?\.(?:m3u8|mp4)[^\s"\'<>]*)', html_content)
+            match = re.search(r'["\']((?:https?:)?//[^\s"\'<>]+?\.(?:m3u8|mp4)[^\s"\'<>]*)["\']', html_content)
 
         if match:
-            stream_url = html.unescape(match.group(1)).replace('\\/', '/')
+            raw_url = html.unescape(match.group(1)).replace('\\/', '/')
             
-            # Limpieza de comillas o caracteres sobrantes al final
-            stream_url = re.sub(r'["\';,].*$', '', stream_url)
+            # Si empieza por // le añadimos https:
+            if raw_url.startswith('//'):
+                raw_url = f"https:{raw_url}"
+                
+            stream_url = re.sub(r'["\';,].*$', '', raw_url)
 
-            # Formato de cabeceras compatible con Kodi Android
-            headers = f"|User-Agent={urllib.parse.quote(UA)}&Referer={urllib.parse.quote(embed_url)}"
+            # Enviamos como Referer la web base de Flyfile para dar acceso global a los segmentos
+            headers = f"|User-Agent={urllib.parse.quote(UA)}&Referer={urllib.parse.quote('https://flyf.lat/')}"
             
             stream_type = 'hls' if '.m3u8' in stream_url else 'mp4'
             log(f"Flyfile resuelto exitosamente ({stream_type}): {stream_url}")
