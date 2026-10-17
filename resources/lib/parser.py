@@ -59,7 +59,7 @@ def resolve(embed_url):
     return None, None
 
 # ============================================================
-# RESOLVER FLYFILE (API Directa y OMG CDN Fallback)
+# RESOLVER FLYFILE (Con Bootstrap API)
 # ============================================================
 
 def resolve_flyfile(embed_url):
@@ -69,23 +69,50 @@ def resolve_flyfile(embed_url):
 
         video_id = embed_url.rstrip('/').split('/')[-1]
         
-        # 1. Intento vía API JSON interna
-        api_url = f"https://api.flyfile.app/v1/embed/{video_id}"
-        req = urllib.request.Request(api_url, headers={
+        # 1. Llamada al Bootstrap de la API para inicializar sesión
+        bootstrap_url = "https://api.flyfile.app/api/public/bootstrap?host=flyf.lat"
+        req_boot = urllib.request.Request(bootstrap_url, headers={
             'User-Agent': UA,
+            'Origin': 'https://flyf.lat',
             'Referer': embed_url,
             'Accept': 'application/json'
         })
         
-        stream_url = None
         try:
-            res = urllib.request.urlopen(req, timeout=10).read().decode('utf-8')
-            data = json.loads(res)
-            stream_url = data.get('file') or data.get('url') or data.get('stream')
-        except Exception:
-            pass
+            urllib.request.urlopen(req_boot, timeout=10)
+        except Exception as e:
+            log(f"Flyfile Bootstrap info/warning: {str(e)}", xbmc.LOGWARNING)
 
-        # 2. Fallback: Captura de CDN directo (omg10.com / master.m3u8)
+        # 2. Petición del stream/detalles del vídeo a la API
+        stream_url = None
+        endpoints_to_try = [
+            f"https://api.flyfile.app/api/public/embed/{video_id}",
+            f"https://api.flyfile.app/v1/embed/{video_id}",
+            f"https://api.flyfile.app/api/embed/{video_id}"
+        ]
+
+        for api_url in endpoints_to_try:
+            try:
+                req = urllib.request.Request(api_url, headers={
+                    'User-Agent': UA,
+                    'Origin': 'https://flyf.lat',
+                    'Referer': embed_url,
+                    'Accept': 'application/json'
+                })
+                res = urllib.request.urlopen(req, timeout=8).read().decode('utf-8')
+                data = json.loads(res)
+                
+                # Buscamos la URL dentro de las posibles claves del JSON
+                stream_url = data.get('file') or data.get('url') or data.get('stream') or data.get('src')
+                if not stream_url and isinstance(data.get('data'), dict):
+                    stream_url = data['data'].get('file') or data['data'].get('url')
+                
+                if stream_url:
+                    break
+            except Exception:
+                continue
+
+        # 3. Fallback directo al CDN omg10.com si la API no devuelve la propiedad directa
         if not stream_url:
             html_content = fetch(embed_url, referer='https://flyf.lat/')
             match = re.search(r'["\']((?:https?:)?//(?:omg\d+\.com|[^\s"\'<>]+)/(?:master\.m3u8|[^\s"\'<>]+\.(?:m3u8|mp4|\d+)))["\']', html_content)
@@ -96,13 +123,14 @@ def resolve_flyfile(embed_url):
             if stream_url.startswith('//'):
                 stream_url = f"https:{stream_url}"
 
-            headers = f"|User-Agent={urllib.parse.quote(UA)}&Referer={urllib.parse.quote('https://flyf.lat/')}"
+            # Cabeceras necesarias para la reproducción en Kodi Android
+            headers = f"|User-Agent={urllib.parse.quote(UA)}&Referer={urllib.parse.quote('https://flyf.lat/')}&Origin={urllib.parse.quote('https://flyf.lat')}"
             stream_type = 'hls' if '.m3u8' in stream_url or '/4/' in stream_url else 'mp4'
             
             log(f"Flyfile resuelto exitosamente ({stream_type}): {stream_url}")
             return stream_url + headers, stream_type
 
-        log("Flyfile: No se pudo obtener el stream de la API ni del HTML", xbmc.LOGERROR)
+        log("Flyfile: No se pudo resolver el vídeo tras el Bootstrap", xbmc.LOGERROR)
 
     except Exception as e:
         log(f"Error resolviendo Flyfile: {str(e)}", xbmc.LOGERROR)
