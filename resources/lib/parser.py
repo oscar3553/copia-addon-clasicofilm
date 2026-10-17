@@ -1,4 +1,4 @@
-import re, urllib.request, urllib.parse, html, xbmc
+import re, urllib.request, urllib.parse, html, xbmc, json
 
 UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
 
@@ -59,7 +59,7 @@ def resolve(embed_url):
     return None, None
 
 # ============================================================
-# RESOLVER FLYFILE (Ajuste de Referer y protocolo)
+# RESOLVER FLYFILE (API Directa y OMG CDN Fallback)
 # ============================================================
 
 def resolve_flyfile(embed_url):
@@ -67,35 +67,42 @@ def resolve_flyfile(embed_url):
         if not embed_url.startswith('http'):
             embed_url = f"https://{embed_url}"
 
-        html_content = fetch(embed_url, referer='https://flyf.lat/')
-        if not html_content:
-            log("Flyfile: no se pudo obtener el HTML de la página embed", xbmc.LOGERROR)
-            return None, None
-
-        # 1. Búsqueda con o sin protocolo (https: o //)
-        match = re.search(r'["\']((?:https?:)?//[^\s"\'<>]+?/master\.m3u8[^\s"\'<>]*)["\']', html_content)
+        video_id = embed_url.rstrip('/').split('/')[-1]
         
-        # 2. Búsqueda secundaria si no es master.m3u8
-        if not match:
-            match = re.search(r'["\']((?:https?:)?//[^\s"\'<>]+?\.(?:m3u8|mp4)[^\s"\'<>]*)["\']', html_content)
+        # 1. Intento vía API JSON interna
+        api_url = f"https://api.flyfile.app/v1/embed/{video_id}"
+        req = urllib.request.Request(api_url, headers={
+            'User-Agent': UA,
+            'Referer': embed_url,
+            'Accept': 'application/json'
+        })
+        
+        stream_url = None
+        try:
+            res = urllib.request.urlopen(req, timeout=10).read().decode('utf-8')
+            data = json.loads(res)
+            stream_url = data.get('file') or data.get('url') or data.get('stream')
+        except Exception:
+            pass
 
-        if match:
-            raw_url = html.unescape(match.group(1)).replace('\\/', '/')
-            
-            # Si empieza por // le añadimos https:
-            if raw_url.startswith('//'):
-                raw_url = f"https:{raw_url}"
-                
-            stream_url = re.sub(r'["\';,].*$', '', raw_url)
+        # 2. Fallback: Captura de CDN directo (omg10.com / master.m3u8)
+        if not stream_url:
+            html_content = fetch(embed_url, referer='https://flyf.lat/')
+            match = re.search(r'["\']((?:https?:)?//(?:omg\d+\.com|[^\s"\'<>]+)/(?:master\.m3u8|[^\s"\'<>]+\.(?:m3u8|mp4|\d+)))["\']', html_content)
+            if match:
+                stream_url = match.group(1)
 
-            # Enviamos como Referer la web base de Flyfile para dar acceso global a los segmentos
+        if stream_url:
+            if stream_url.startswith('//'):
+                stream_url = f"https:{stream_url}"
+
             headers = f"|User-Agent={urllib.parse.quote(UA)}&Referer={urllib.parse.quote('https://flyf.lat/')}"
+            stream_type = 'hls' if '.m3u8' in stream_url or '/4/' in stream_url else 'mp4'
             
-            stream_type = 'hls' if '.m3u8' in stream_url else 'mp4'
             log(f"Flyfile resuelto exitosamente ({stream_type}): {stream_url}")
             return stream_url + headers, stream_type
 
-        log("Flyfile: No se encontró ningún patrón m3u8 en el HTML", xbmc.LOGERROR)
+        log("Flyfile: No se pudo obtener el stream de la API ni del HTML", xbmc.LOGERROR)
 
     except Exception as e:
         log(f"Error resolviendo Flyfile: {str(e)}", xbmc.LOGERROR)
