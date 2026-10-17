@@ -37,10 +37,15 @@ def run(argv):
             xbmcplugin.setResolvedUrl(HANDLE, False, xbmcgui.ListItem())
             return
 
+        # Prioridad de servidores: 1º Flyfile, 2º Dzen.ru
+        server_priority = {'Flyfile': 1, 'Dzen.ru': 2}
+        src.sort(key=lambda x: server_priority.get(x[0], 99))
+
         stream_url, stream_type = None, None
         
-        # Recorre las fuentes encontradas (Archive.org primero, luego Dzen)
+        # Intentar resolver fuentes en orden (Flyfile primero, luego Dzen)
         for server_name, embed_url in src:
+            xbmc.log(f"[Clasicofilm Router] Intentando reproducir con servidor: {server_name}", xbmc.LOGINFO)
             stream_url, stream_type = resolve(embed_url)
             if stream_url:
                 break
@@ -49,13 +54,13 @@ def run(argv):
             play_item = xbmcgui.ListItem(path=stream_url)
             play_item.setProperty('IsPlayable', 'true')
 
-            # Si es Dzen.ru con HLS (.m3u8), activamos InputStream Adaptive
+            # Si la fuente es HLS (.m3u8), activamos InputStream Adaptive
             if stream_type == 'hls':
                 play_item.setMimeType('application/vnd.apple.mpegurl')
                 play_item.setProperty('inputstream', 'inputstream.adaptive')
                 play_item.setProperty('inputstream.adaptive.manifest_type', 'hls')
             else:
-                # Si es Archive.org (MP4 directo), reproducción nativa de Kodi
+                # Reproducción directa para formatos MP4
                 play_item.setMimeType('video/mp4')
 
             play_item.setContentLookup(False)
