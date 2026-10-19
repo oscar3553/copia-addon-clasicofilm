@@ -99,6 +99,7 @@ def resolve_flyfile(embed_url):
         log(assign)
 
         try:
+
             j = json.loads(assign)
 
             host = j.get("url")
@@ -108,6 +109,7 @@ def resolve_flyfile(embed_url):
             log("TOKEN = %s" % token)
 
         except Exception as e:
+
             log("JSON ERROR: %s" % e)
 
         return None
