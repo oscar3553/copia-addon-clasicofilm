@@ -2,7 +2,7 @@ import re
 import urllib.request
 import urllib.parse
 
-# Usamos el User-Agent compatible con Web Video Caster / WebView para saltar bloqueos
+# User-Agent idéntico al de Web Video Caster para evitar restricciones
 UA = {'User-Agent': 'Mozilla/5.0 (Linux; Android 13; Chromecast) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Mobile Safari/537.36 WVCNow/1.0'}
 
 def fetch(url, referer=None):
@@ -23,7 +23,7 @@ def extract(post_url):
     for x in set(re.findall(r'https://dzen\.ru/embed/[^"\'\>\s]+', h)):
         enlaces.append(('Dzen', x))
 
-    # Busca enlaces de FlyF (Ampliamos la búsqueda para /embed/ y /v/)
+    # Busca enlaces de FlyF (tanto /v/ como /embed/)
     fly_matches = set(re.findall(r'https://flyf\.lat/(?:embed|v)/[^"\'\>\s]+', h))
     for x in fly_matches:
         enlaces.append(('Dzen', x))
@@ -31,21 +31,21 @@ def extract(post_url):
     return enlaces
 
 def resolve_dzen(url):
-    # Corrección: Extraemos la URL si viene en formato de lista (por seguridad del main.py)
+    # Seguridad por si viene en formato de lista
     if isinstance(url, list):
         if len(url) > 0:
             url = url[0]
         else:
             return None
 
-    # SI EL ENLACE DETECTADO ES DE FLYF
+    # SI EL ENLACE DETECTADO ES DE FLYF / FLYFILE
     if 'flyf.lat' in url or 'flyfile' in url:
-        h = fetch(url, referer="https://flyf.lat")
+        h = fetch(url, referer="https://flyf.lat/")
 
-        # Búsqueda más flexible de m3u8 o enlaces CDN en el HTML de Flyfile
-        m = re.search(r'["\']((?:https?:)?//[^\s"\'<>]+(?:m3u8|mp4|4/\d+)[^\s"\'<>]*?)["\']', h)
+        # Búsqueda flexible de cualquier m3u8 o ruta de streaming en el HTML del embed
+        m = re.search(r'["\']((?:https?:)?//[^\s"\'<>]+(?:m3u8|streaming-[^\s"\'<>]+)[^\s"\'<>]*?)["\']', h)
         if not m:
-            # Fallback a búsqueda simple de m3u8
+            # Fallback general para cualquier .m3u8 en el código
             m = re.search(r'(https?://[^"\']+\.m3u8[^"\']*)', h)
 
         if m:
@@ -53,9 +53,9 @@ def resolve_dzen(url):
             if stream_url.startswith('//'):
                 stream_url = f"https:{stream_url}"
 
-            # Formateamos las cabeceras HTTP necesarias para activar Inputstream.Adaptive en Kodi
+            # Cabeceras y parámetros para Kodi (Inputstream Adaptive)
             ua_enc = urllib.parse.quote(UA['User-Agent'])
-            ref_enc = urllib.parse.quote("https://flyf.lat")
+            ref_enc = urllib.parse.quote("https://flyf.lat/")
 
             parametros_kodi = (
                 f"|User-Agent={ua_enc}&Referer={ref_enc}"
@@ -66,7 +66,7 @@ def resolve_dzen(url):
             return f"{stream_url}{parametros_kodi}"
         return None
 
-    # SI EL ENLACE ES DE DZEN (Tu lógica original intacta)
+    # SI EL ENLACE ES DE DZEN (Lógica original)
     h = fetch(url)
     m = re.search(r'"url":"(http[^"]+?\.m3u8[^"]*?)"', h)
     if m: 
