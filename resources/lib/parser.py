@@ -16,29 +16,38 @@ def fetch(url, referer=None):
 def extract(post_url):
     h = fetch(post_url)
     enlaces = []
-
+    
     # Busca enlaces de Dzen
     for x in set(re.findall(r'https://dzen\.ru/embed/[^"\'\>\s]+', h)):
         enlaces.append(('Dzen', x))
-
-    # Busca enlaces de FlyF (los guardamos bajo la misma etiqueta para que el addon los procese)
+        
+    # Busca enlaces de FlyF
+    # ¡IMPORTANTE! Al guardarlo como 'Dzen', tu main.py procesará este enlace
+    # enviándolo directo a la función resolve_dzen() de abajo.
     for x in set(re.findall(r'https://flyf\.lat/v/[^"\'\>\s]+', h)):
         enlaces.append(('Dzen', x))
-
+        
     return enlaces
 
 def resolve_dzen(url):
-    # SI EL ENLACE ES DE FLYF
+    # Corrección: Extraemos la URL si viene en formato de lista (por seguridad del main.py)
+    if isinstance(url, list):
+        if len(url) > 0:
+            url = url[0]
+        else:
+            return None
+
+    # SI EL ENLACE DETECTADO ES DE FLYF
     if 'flyf.lat' in url or 'flyfile' in url:
         h = fetch(url, referer="https://flyf.lat")
         m = re.search(r'(https://[^"\']+\.m3u8[^"\']*)', h)
         if m:
             url_m3u8 = m.group(1).replace('\\\\', '').replace('\\', '')
-
+            
             # Formateamos las cabeceras HTTP necesarias para activar Inputstream.Adaptive en Kodi
             ua_enc = urllib.parse.quote(UA['User-Agent'])
             ref_enc = urllib.parse.quote("https://flyf.lat")
-
+            
             parametros_kodi = (
                 f"|User-Agent={ua_enc}&Referer={ref_enc}"
                 f"&@inputstream=inputstream.adaptive"
