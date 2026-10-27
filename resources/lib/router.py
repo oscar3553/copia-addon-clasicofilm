@@ -35,10 +35,32 @@ def run(argv):
         xbmc.executebuiltin('Action(Info)') # Forzamos la ficha al hacer click
         url_post = urllib.parse.unquote(p['url'][0])
         src = extract(url_post)
+        
+        # --- NUEVA LÓGICA HÍBRIDA DZEN + HUGGING FACE ---
         dzen = [u for n,u in src if n=='Dzen']
+        hf = [u for n,u in src if 'huggingface.co' in u or n=='HuggingFace'] # Detecta Hugging Face
+        
+        url_final = None
+        
+        # 1. Intentamos Dzen.ru primero si existe
         if dzen:
-            f = resolve_dzen(dzen[0])
-            if f: xbmcplugin.setResolvedUrl(HANDLE, True, xbmcgui.ListItem(path=f))
+            try:
+                url_final = resolve_dzen(dzen[0])
+            except Exception:
+                url_final = None # Si hay un error en el raspado de Dzen, lo ignoramos para pasar al respaldo
+                
+        # 2. Si Dzen falló o no estaba en la entrada, pero sí hay Hugging Face:
+        if not url_final and hf:
+            # Como Hugging Face es un enlace directo resoluble (/resolve/), no necesita pasar por un extractor pesado.
+            url_final = hf[0] 
+            
+        # 3. Mandamos el enlace definitivo a Kodi si logramos rescatar alguno
+        if url_final:
+            xbmcplugin.setResolvedUrl(HANDLE, True, xbmcgui.ListItem(path=url_final))
+        else:
+            # Pequeño aviso visual por si la entrada de Blogger se queda sin fuentes válidas
+            xbmcgui.Dialog().notification('ClasicoFilm', 'No se pudo cargar ninguna fuente de vídeo', xbmcgui.NOTIFICATION_INFO, 4000)
+            xbmcplugin.setResolvedUrl(HANDLE, False, xbmcgui.ListItem())
         return
         
     if a=='latest':
